@@ -6,19 +6,20 @@ import re
 # =========================================================
 # USER SETTINGS
 # =========================================================
-FBX_PATH = r"FILEPATH"   # <-- CHANGE THIS
-TARGET_COLLECTION_NAME = "ARCHICAD MODEL"
-TEMP_COLLECTION_NAME = "__TEMP_FBX__"
+FBX_PATH = r"FILEPATH"  # <-- THIS IS THE FILE PATH. TODO: CREATE A UI POPUP TO BROWSE FOR IT
+TARGET_COLLECTION_NAME = "ARCHICAD MODEL"               # <-- THIS IS THE COLLECTION WHICH CONTAINS THE ARCHICAD MODEL TO-BE-UPDATED
+TEMP_COLLECTION_NAME = "__TEMP_FBX__"                   # <-- THIS COLLECTION SHOULD NEVER BE RENDERED, IT HOSTS THE IMPORTED MODEL TERMPORARILY.
 
 # =========================================================
-# HELPERS
+# HELPER FUNCTIONS
 # =========================================================
 blender_dup_suffix_re = re.compile(r"^(.*)\.(\d{3})$")
 
 
 def canonical_name(name: str) -> str:
     """
-    Strip Blender duplicate suffix: Cube.001 -> Cube
+    Canonical name is a weird way to say the original Archicad surface name without any Blender suffices.
+    Strip Blender duplicate suffix: MaterialName.001 -> MaterialName (this happens during the import to the temporary collection)
     """
     m = blender_dup_suffix_re.match(name)
     if m:
@@ -60,7 +61,7 @@ def move_object_exclusively_to_collection(obj, target_col):
 def build_existing_map(target_col):
     """
     Existing objects are keyed by their actual name.
-    Assumes your scene-side names are the reference names.
+    Assumes that the scene-side names are the reference (Archicad Surface attribute) names.
     """
     result = {}
     for obj in target_col.objects:
@@ -78,7 +79,7 @@ def build_imported_map(imported_objects, existing_map):
       imported Air.001 -> canonical Air
       if Air exists in target, match to Air
 
-    If canonical name doesn't exist in target, we still use canonical name.
+    If canonical name doesn't exist in target, the canonical name is still used.
     """
     result = {}
     for obj in imported_objects:
@@ -125,7 +126,8 @@ def remap_materials_by_name(obj):
 
 def copy_uvs_if_same_topology(src_mesh, dst_mesh):
     """
-    Copy UV layers from src_mesh to dst_mesh if topology matches.
+    Copy UV layers from src_mesh to dst_mesh if topology matches. <-- TODO: research needed, this does not seem to work. 
+    Custom UV maps are lost, procedural texture mapping is advised. 
     """
     if src_mesh is None or dst_mesh is None:
         return False
@@ -160,7 +162,7 @@ def replace_geometry(existing_obj, imported_obj, preserve_uvs=True):
     """
     Replace existing object's mesh with imported mesh.
     Keep existing materials.
-    Optionally copy UVs from old mesh if topology matches.
+    Optionally copy UVs from old mesh if topology matches. <-- TODO: research needed, this does not seem to work. 
     """
     old_mesh = existing_obj.data
     new_mesh = imported_obj.data
@@ -186,8 +188,7 @@ def clear_geometry(obj):
     empty_mesh = bpy.data.meshes.new(f"{obj.name}_EMPTY")
     obj.data = empty_mesh
 
-    # Keep material slots if you want visual consistency in the outliner/data
-    # Not strictly necessary, but harmless:
+    # Optional: keeping material slots for visual consistency in the outliner/data:
     # apply_materials_to_mesh(obj, [slot.material for slot in obj.material_slots])
 
     if old_mesh and old_mesh.users == 0:
@@ -203,7 +204,7 @@ temp_col = get_or_create_collection(TEMP_COLLECTION_NAME)
 # Clean temp collection from previous failed runs
 purge_collection_objects(temp_col)
 
-# Import
+# Import FBX file
 imported_objects = import_fbx(FBX_PATH)
 
 # Move imported objects exclusively into temp collection
