@@ -6,7 +6,7 @@ import re
 # =========================================================
 # USER SETTINGS
 # =========================================================
-FBX_PATH = r"FILEPATH"  # <-- THIS IS THE FILE PATH. TODO: CREATE A UI POPUP TO BROWSE FOR IT
+FBX_PATH = r"FILEPATH"                                  # <-- THIS IS THE FILE PATH. TODO: CREATE A UI POPUP TO BROWSE FOR IT
 TARGET_COLLECTION_NAME = "ARCHICAD MODEL"               # <-- THIS IS THE COLLECTION WHICH CONTAINS THE ARCHICAD MODEL TO-BE-UPDATED
 TEMP_COLLECTION_NAME = "__TEMP_FBX__"                   # <-- THIS COLLECTION SHOULD NEVER BE RENDERED, IT HOSTS THE IMPORTED MODEL TERMPORARILY.
 
