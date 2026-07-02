@@ -194,6 +194,10 @@ def clear_geometry(obj):
     if old_mesh and old_mesh.users == 0:
         bpy.data.meshes.remove(old_mesh)
 
+def remove_unused_duplicate_materials():
+    for mat in list(bpy.data.materials):
+        if mat.users == 0 and re.match(r"^.*\.\d{3}$", mat.name):
+            bpy.data.materials.remove(mat)
 
 # =========================================================
 # MAIN
@@ -256,6 +260,8 @@ for name in missing:
 # Cleanup temp collection leftovers
 # ---------------------------------------------------------
 purge_collection_objects(temp_col)
+
+remove_unused_duplicate_materials()
 
 print(
     f"DONE | updated={len(matched)} | new={len(new)} | cleared={len(missing)}"
