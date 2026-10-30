@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "odv_tools"
-version = "0.0.1"
+version = "0.0.2"
 name = "odv tools"
 tagline = "Bring Archicad and Rhino models into Blender for rendering"
 maintainer = "o d v"

@@ -208,7 +208,16 @@ def next_free_pass_index(collection):
 class ODV_OT_ac_update_from_fbx(bpy.types.Operator):
     bl_idname = "odv.ac_update_from_fbx"
     bl_label = "Update model from FBX"
+    bl_description = ("Import the FBX and update the objects in the target collection, "
+                      "keeping their materials, pass indices, modifiers and custom properties")
     bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        if not context.scene.ac_fbx_path:
+            cls.poll_message_set("Select an FBX file first")
+            return False
+        return True
 
     def execute(self, context):
         s = context.scene
@@ -288,35 +297,61 @@ class ODV_PT_ac_fbx_updater(bpy.types.Panel):
 
     def draw(self, context):
         s = context.scene
-        col = self.layout.column()
-        col.prop(s, "ac_fbx_path")
-        col.prop(s, "ac_target_collection")
-        col.prop(s, "ac_temp_collection")
-        col.separator()
-        col.prop(s, "ac_clear_missing")
-        col.prop(s, "ac_autoindex")
-        col.separator()
+        layout = self.layout
+        layout.prop(s, "ac_fbx_path")
+
+        box = layout.box()
+        box.label(text="Options")
+        box.prop(s, "ac_clear_missing")
+        box.prop(s, "ac_autoindex")
+
+        col = layout.column()
         col.operator("odv.ac_update_from_fbx", icon='FILE_REFRESH')
         col.operator("odv.ac_reindex", icon='MATERIAL')
 
 
+class ODV_PT_ac_fbx_updater_collections(bpy.types.Panel):
+    """The collections the updater works with; rarely changed, so closed by default."""
+    bl_label = "Collections"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "odv"
+    bl_parent_id = "ODV_PT_ac_fbx_updater"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        s = context.scene
+        col = self.layout.column()
+        col.prop(s, "ac_target_collection")
+        col.prop(s, "ac_temp_collection")
+
+
 # ---------------------------------------------------------------------------
 
-classes = (ODV_OT_ac_update_from_fbx, ODV_OT_ac_reindex, ODV_PT_ac_fbx_updater)
+classes = (
+    ODV_OT_ac_update_from_fbx,
+    ODV_OT_ac_reindex,
+    ODV_PT_ac_fbx_updater,
+    ODV_PT_ac_fbx_updater_collections,
+)
 
 
 def register():
     bpy.types.Scene.ac_fbx_path = bpy.props.StringProperty(
-        name="FBX", subtype='FILE_PATH')
+        name="FBX", subtype='FILE_PATH',
+        description="FBX file exported from Archicad")
     bpy.types.Scene.ac_target_collection = bpy.props.StringProperty(
-        name="Target", default="ARCHICAD MODEL")
+        name="Target", default="ARCHICAD MODEL",
+        description="Collection that holds the Archicad model in the scene; created on the first update if missing")
     bpy.types.Scene.ac_temp_collection = bpy.props.StringProperty(
-        name="Temp", default="__TEMP_FBX__")
+        name="Temp", default="__TEMP_FBX__",
+        description="Working collection for the import, emptied after each update; don't render it")
     bpy.types.Scene.ac_clear_missing = bpy.props.BoolProperty(
         name="Clear missing objects", default=True,
         description="Empty the mesh of objects no longer in the FBX instead of deleting them")
     bpy.types.Scene.ac_autoindex = bpy.props.BoolProperty(
-        name="Auto pass index for new", default=True)
+        name="Auto pass index for new", default=True,
+        description="Give each new object the lowest pass index not yet used in the target collection")
     for c in classes:
         bpy.utils.register_class(c)
 

@@ -5,6 +5,12 @@ Versions follow semantic versioning; tags are `vX.Y.Z` on `main` (see `docs/RELE
 
 ## Unreleased
 
+## 0.0.2 (2026-10-30)
+
+### Changed
+
+- Archicad FBX Updater (#5): tooltips for the update button and every field; *Update model from FBX* is greyed out until an FBX file is selected; the two options sit in an *Options* box, and *Target* and *Temp* in a *Collections* sub-panel, closed by default.
+
 ## 0.0.1 (2026-10-30)
 
 ### Added

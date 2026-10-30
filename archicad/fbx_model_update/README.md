@@ -30,6 +30,10 @@ Their settings are not needed: materials are set up in Blender.
 | **Clear missing objects** | Empty the geometry of objects that are no longer in the FBX. The objects themselves are kept. When off, they are left as they are. |
 | **Auto pass index for new** | Give each new object the lowest pass index not yet used in the target collection. |
 
+*Target* and *Temp* are in the *Collections* sub-panel, closed by default.
+*Update model from FBX* stays greyed out until an FBX file is selected.
+Every field and button explains itself in its tooltip.
+
 **Update model from FBX** imports the file, joins everything and splits it again into one object per material, named after the material, which is the Archicad surface.
 Then it compares these with the objects in the target collection by name:
 

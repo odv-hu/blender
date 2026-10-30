@@ -1,6 +1,6 @@
 # STATUS
 
-**Documented state:** odv tools 0.0.1 (2026-10-30), the first release: the Blender tools packaged as one extension (#3).
+**Documented state:** odv tools 0.0.2 (2026-10-30): panel improvements of the Archicad FBX Updater (#5), released to test updates from the extension repository (#4). 0.0.1 was the first release: the Blender tools packaged as one extension (#3).
 
 **Review status.** The code was written with AI assistance: the first updater script with ChatGPT (2026-04), the Archicad FBX Updater add-on v2.0.0 in an AI-assisted session that was not recorded (2026-08-26).
 Neither has been reviewed line by line.
@@ -26,6 +26,7 @@ Legend: **Tested** = a recorded check with named data · **In use** = used in ou
 |---|---|---|
 | Panel: FBX, Target, Temp, the two options and both buttons | **In use** | as the stand-alone add-on v2.0.0 (*AC* tab) in the owner's Blender 5.1.2 on macOS, installed 2026-08-26 |
 | Update and reindex from the extension package | **Tested** | headless, background Blender 5.1.2 with factory settings on macOS, 2026-10-30, package built from the working tree of #3. Synthetic FBX exports of three cube "elements" (materials Wall + Plaster, Wall, Glass), then the same with Steel instead of Glass. Run 1: Wall, Plaster, Glass added. Run 2: Wall and Plaster matched, Steel added with the next free pass index (3), Glass emptied (0 polygons). Wall kept a custom property, a bevel modifier, pass index 42 and a replaced material; the temp collection was empty and no `.001` materials were left. *Assign pass indices* gave 1–4 in name order. Not covered: a real Archicad FBX, the interactive UI |
+| Panel of 0.0.2 (#5): tooltips, update button disabled without an FBX, *Collections* sub-panel | **Tested** headless; panel look not yet seen | background Blender 5.1.2 with factory settings on macOS, 2026-10-30, `odv_tools-0.0.2.zip` built from the working tree: the operator's `poll()` is false with an empty FBX path and true with one; the *Collections* sub-panel is registered under the main panel, closed by default; the operator and all five scene settings have descriptions. The update test above repeated with the same result (Wall kept its custom property, modifier and pass index 42; Glass emptied; Steel added) |
 | Update model from FBX: join the import, split by material, replace geometry inside existing objects, add new ones, empty missing ones | **In use** | the owner's projects; no recorded check of matched / new / missing handling |
 | Assign pass indices; auto pass index for new objects | **In use** | as above |
 | Import through either FBX importer (`wm.fbx_import` or `import_scene.fbx`) | Implemented | which one runs on Blender 5.1 is not recorded |
@@ -46,6 +47,7 @@ Open bugs and limitations are GitHub issues (https://github.com/odv-hu/blender/i
 
 ## Most recently changed
 
+- **2026-10-30 (#5, Balázs + Claude):** Archicad FBX Updater panel: tooltips, update button disabled without an FBX, *Options* box and closed *Collections* sub-panel; released as 0.0.2.
 - **2026-10-30 (#4, Balázs + Claude):** GitHub Pages switched on (source *GitHub Actions*, tag rule `v*` on `github-pages`, custom domain `blender.odv.hu`); 0.0.1 published to the extension repository and installed from it in Blender.
 - **2026-10-30 (#4, Balázs + Claude):** the release workflow also publishes the extension repository `https://blender.odv.hu/index.json` on GitHub Pages; `blender.odv.hu` set up at dima.hu and `odv.hu` verified on GitHub.
 - **2026-10-30 (Balázs + Claude):** release workflow added: a pushed `vX.Y.Z` tag builds the zip with Blender and publishes the GitHub release.
