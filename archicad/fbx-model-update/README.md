@@ -1,7 +1,20 @@
 # fbx-model-update
 
-Updates the Archicad model in a Blender scene from a new FBX export with a single script run.
-Materials set up in Blender are kept.
+Archicad FBX Updater: a Blender add-on that updates the Archicad model in a scene from a new FBX export with one click.
+Materials, pass indices, modifiers and custom properties set up in Blender are kept.
+
+Requires Blender 5.0 or newer; used with Blender 5.1.
+
+## Install
+
+1. Download [`ac_fbx_updater.py`](ac_fbx_updater.py) (*Download raw file* on GitHub), or clone the repo.
+2. In Blender, open *Edit › Preferences › Add-ons*, click the ˅ menu at the top right and choose *Install from Disk…*.
+3. Select `ac_fbx_updater.py`, then tick *Archicad FBX Updater* in the list to enable it.
+
+The panel appears in the 3D Viewport sidebar (N), on the *AC* tab.
+
+Blender copies the file into its own add-ons folder, so pulling a new version from the repo does not update the installed one.
+To update, install the new file the same way; it replaces the old one.
 
 ## Export from Archicad
 
@@ -10,43 +23,35 @@ Materials set up in Blender are kept.
 3. Surface settings to export: Export colors and transparency only.
 4. Texture handling: Embed textures in FBX setting is OFF (leave it unchecked)
 
-This gives a stable structure based on the Surface attributes: one mesh per surface.
-Materials are set in Blender anyway, so the surface settings themselves are not needed.
+The Archicad surfaces arrive as materials.
+Their settings are not needed: materials are set up in Blender.
 
-## Install
+## Use
 
-This is a plain script, not an add-on: there is nothing to install in Preferences.
-It is loaded into each `.blend` file that should be updated.
+| Field | |
+| --- | --- |
+| **FBX** | The exported file. |
+| **Target** | The collection that holds the model in the scene, `ARCHICAD MODEL` by default. Created on the first update if it is missing. |
+| **Temp** | A working collection for the import, `__TEMP_FBX__` by default. It is emptied after each update; don't render it. |
+| **Clear missing objects** | Empty the geometry of objects that are no longer in the FBX. The objects themselves are kept. When off, they are left as they are. |
+| **Auto pass index for new** | Give each new object the lowest pass index not yet used in the target collection. |
 
-1. Get the script: download [`update-ac-model-fbx.py`](update-ac-model-fbx.py) (*Download raw file* on GitHub), or clone the repo.
-2. In Blender, switch to the *Scripting* workspace.
-3. In the Text Editor, choose *Text › Open…* and select `update-ac-model-fbx.py`.
+**Update model from FBX** imports the file, joins everything and splits it again into one object per material, named after the material, which is the Archicad surface.
+Then it compares these with the objects in the target collection by name:
 
-The opened script stays linked to the file on disk.
-When the file changes, for example after a `git pull`, the Text Editor offers to reload it.
-To keep a fixed copy inside the `.blend` instead, choose *Make Text Internal* from that prompt.
+- **in the scene and in the FBX:** the geometry is replaced inside the existing object, so its materials, pass index, modifiers and custom properties stay;
+- **new in the FBX:** the object is added to the target collection;
+- **no longer in the FBX:** the object is emptied, if *Clear missing objects* is on.
 
-## Run in Blender
+Materials that arrive as duplicates (`Wood.001`) are pointed at the existing material (`Wood`), and unused duplicates are removed.
+The result is shown in the status bar, and the matched, new and missing names are printed to the system console.
+The update can be undone with Ctrl+Z.
 
-1. Set `FBX_PATH` to the exported file. Keep the `r` and the quotes: `FBX_PATH = r"C:\path\to\model.fbx"`.
-2. Run the script: the ▶ (*Run Script*) button in the Text Editor header, or Alt+P.
-
-The model lives in a collection named `ARCHICAD MODEL`, created on the first run if it is missing.
-The script prints the matched, new and missing objects to the system console (*Window › Toggle System Console* on Windows; on macOS and Linux, the terminal Blender was started from).
-Save the `.blend` before the first run, so you can go back if the result is not what you expected.
-
-## What it does
-
-Objects are matched by name, which is the Archicad surface name:
-
-- **in the scene and in the FBX:** the geometry is replaced, the Blender materials are kept;
-- **new in the FBX:** the object is added, and any material that already exists in the scene under the same name is reused (`Wood.001` → `Wood`);
-- **no longer in the FBX:** the object is kept, but its geometry is emptied.
-
-The import goes through a temporary `__TEMP_FBX__` collection, which is emptied at the end; don't render it.
-Unused duplicate materials (`.001`, `.002`, …) are removed.
+**Assign pass indices** numbers every object in the target collection from 1 upwards, in name order, and gives the object's materials the same index.
+This overwrites existing pass indices.
+Pass indices are what the *Object Index* and *Material Index* passes use for masks in compositing.
 
 ## Limitations
 
-- Custom UV maps are lost on update: copying them over doesn't work yet. Use procedural texture mapping.
-- The file path is set in the script; a file browser is on the to-do list.
+- Custom UV maps are lost on update, because the geometry is replaced. Use procedural texture mapping.
+- Object transforms are applied: the geometry sits in world coordinates and every object's transform is reset.

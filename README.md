@@ -10,7 +10,7 @@ The tools here bring models from the other two into a Blender scene and keep tha
 
 | Tool | From | What it does |
 | --- | --- | --- |
-| [fbx-model-update](archicad/fbx-model-update/) | Archicad | Updates the Archicad model in a Blender scene from a new FBX export and keeps the materials set up in Blender. |
+| [fbx-model-update](archicad/fbx-model-update/) | Archicad | Add-on that updates the Archicad model in a Blender scene from a new FBX export and keeps the materials, pass indices and modifiers set up in Blender. |
 
 ## Layout
 
