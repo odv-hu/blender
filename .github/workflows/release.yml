@@ -1,0 +1,101 @@
+# Release: push a tag vMAJOR.MINOR.PATCH on a commit of main (from Fork:
+# New Tag… → push), or run this workflow by hand from the Actions tab for an
+# existing tag that has no release yet (for example after fixing this
+# workflow on main).
+#
+# 1. The tag is vX.Y.Z and the tagged commit says X.Y.Z in
+#    blender_manifest.toml, in the Documented state line of STATUS.md and in a
+#    CHANGELOG.md section "## X.Y.Z (YYYY-MM-DD)".
+# 2. Blender (pinned version and checksum below) validates and builds
+#    odv_tools-X.Y.Z.zip; the zip must not contain the repository-only files.
+# 3. Publishes the GitHub release "odv tools X.Y.Z" with that CHANGELOG
+#    section and the zip; 0.x versions are marked as pre-releases.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag without a release, e.g. v0.0.1
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  BLENDER_VERSION: 5.1.2
+  # blender-5.1.2-linux-x64.tar.xz, from download.blender.org/release/Blender5.1/blender-5.1.2.sha256
+  BLENDER_SHA256: aaccb355f50183979b698bcce7467103a76261b5fa59f4972295842662a285fb
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+
+      - name: Tag and source versions agree
+        run: |
+          if ! [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Tag $TAG is not vMAJOR.MINOR.PATCH"; exit 1
+          fi
+          V="${TAG#v}"
+          fail=0
+          src=$(python3 -c "import tomllib; print(tomllib.load(open('blender_manifest.toml', 'rb'))['version'])")
+          [ "$src" = "$V" ] || { echo "::error file=blender_manifest.toml::version is '$src', tag is $TAG"; fail=1; }
+          grep -qF "**Documented state:** odv tools $V (" STATUS.md || { echo "::error file=STATUS.md::Documented state line does not name odv tools $V"; fail=1; }
+          grep -qE "^## ${V//./\\.} \([0-9]{4}-[0-9]{2}-[0-9]{2}\)$" CHANGELOG.md || { echo "::error file=CHANGELOG.md::no '## $V (YYYY-MM-DD)' section"; fail=1; }
+          [ $fail = 0 ] || exit 1
+          echo "VERSION=$V" >> "$GITHUB_ENV"
+
+      - name: Release notes
+        run: |
+          {
+            awk -v h="## $VERSION (" 'index($0, h) == 1 {on = 1; next} on && /^## / {exit} on' CHANGELOG.md
+            echo
+            echo "**Install:** download \`odv_tools-$VERSION.zip\` below; in Blender, *Edit › Preferences › Add-ons*, ˅ menu at the top right, *Install from Disk…*. Requires Blender 5.0 or newer."
+          } > "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md"
+
+      - name: Install Blender
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libx11-6 libxext6 libxi6 libxxf86vm1 libxfixes3 libxrender1 libxkbcommon0 libsm6 libgl1 libegl1
+          f="$RUNNER_TEMP/blender.tar.xz"
+          curl -fsSL -o "$f" "https://download.blender.org/release/Blender${BLENDER_VERSION%.*}/blender-$BLENDER_VERSION-linux-x64.tar.xz"
+          echo "$BLENDER_SHA256  $f" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/blender"
+          tar -xJf "$f" -C "$RUNNER_TEMP/blender" --strip-components=1
+          rm "$f"
+          echo "$RUNNER_TEMP/blender" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/blender/blender" --factory-startup --version
+
+      - name: Validate and build the extension
+        run: |
+          blender --factory-startup --command extension validate .
+          mkdir -p dist
+          blender --factory-startup --command extension build --output-dir dist
+          zip="dist/odv_tools-$VERSION.zip"
+          unzip -l "$zip"
+          if unzip -Z1 "$zip" | grep -E '^(AGENTS|CLAUDE|STATUS|CHANGELOG)\.md$|^docs/|^\.|/\.'; then
+            echo "::error::$zip contains repository-only files (listed above)"; exit 1
+          fi
+
+      - name: GitHub release
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::Release $TAG already exists; it is not replaced."; exit 1
+          fi
+          pre=""
+          case "$VERSION" in 0.*) pre="--prerelease" ;; esac
+          gh release create "$TAG" "dist/odv_tools-$VERSION.zip" --verify-tag $pre \
+            --title "odv tools $VERSION" --notes-file "$RUNNER_TEMP/notes.md"

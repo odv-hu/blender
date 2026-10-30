@@ -3,7 +3,9 @@
 User-visible changes to the odv tools extension.
 Versions follow semantic versioning; tags are `vX.Y.Z` on `main` (see `docs/RELEASING.md`).
 
-## Unreleased (0.0.1)
+## Unreleased
+
+## 0.0.1 (2026-10-30)
 
 ### Added
 

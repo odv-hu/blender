@@ -77,7 +77,7 @@ No milestones yet; the owner assigns them.
 
 ## Releases
 
-Read and follow `docs/RELEASING.md` whenever asked to build, package or release a version. Committing, tagging, pushing and publishing a release are the owner's.
+Read and follow `docs/RELEASING.md` whenever asked to build, package or release a version. Committing, tagging and pushing are the owner's; the pushed tag publishes the release through `.github/workflows/release.yml`. Change that workflow only with the owner's go-ahead.
 
 ## Handoff
 
