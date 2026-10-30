@@ -8,7 +8,7 @@
 # 2. Blender (pinned version and checksum below) validates and builds
 #    odv_tools-X.Y.Z.zip; the zip must not contain the repository-only files.
 # 3. Publishes the GitHub release "odv tools X.Y.Z" with that CHANGELOG
-#    section and the zip; 0.x versions are marked as pre-releases. An existing
+#    section and the zip, as a normal (not pre-) release. An existing
 #    release is never replaced: its zip is used for step 4 instead.
 # 4. Publishes the Blender extension repository on GitHub Pages
 #    (https://blender.odv.hu/index.json): the zip, index.json and index.html
@@ -111,9 +111,7 @@ jobs:
             gh release download "$TAG" --pattern "odv_tools-$VERSION.zip" --dir dist
             exit 0
           fi
-          pre=""
-          case "$VERSION" in 0.*) pre="--prerelease" ;; esac
-          gh release create "$TAG" "dist/odv_tools-$VERSION.zip" --verify-tag $pre \
+          gh release create "$TAG" "dist/odv_tools-$VERSION.zip" --verify-tag \
             --title "odv tools $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
 
       - name: Extension repository
