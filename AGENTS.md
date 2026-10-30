@@ -22,7 +22,7 @@ The repository is public. It is built for our own projects and maintained as we 
 | | |
 |---|---|
 | Host | macOS, Blender 5.1. Archicad and Rhino are the source apps. |
-| Extension | The Blender tools ship as one extension, `odv_tools` (`blender_manifest.toml`, #3). The owner installs the built zip from disk; the installed copy is not updated by git. |
+| Extension | The Blender tools ship as one extension, `odv_tools` (`blender_manifest.toml`, #3). Releases are installed from the extension repository `https://blender.odv.hu/index.json` (GitHub Pages, #4) or from the zip; the installed copy is not updated by git. |
 | Git client | The owner uses Fork. |
 
 ## Where the work happens

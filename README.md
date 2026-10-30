@@ -9,10 +9,15 @@ The tools here bring models from the other two into a Blender scene and keep tha
 ## Install
 
 The Blender tools ship together as one extension, **odv tools**, for Blender 5.0 or newer.
+The tools appear in the 3D Viewport sidebar (N), on the *odv* tab.
 
-1. Download `odv_tools-X.Y.Z.zip` from the [Releases](https://github.com/odv-hu/blender/releases) page, or build it yourself (`docs/RELEASING.md`).
-2. In Blender, open *Edit › Preferences › Add-ons*, click the ˅ menu at the top right and choose *Install from Disk…*.
-3. Select the zip. The tools appear in the 3D Viewport sidebar (N), on the *odv* tab.
+**From our extension repository** (Blender offers updates):
+
+1. In Blender, open *Edit › Preferences › Get Extensions*, then *Repositories*, **+**, *Add Remote Repository*.
+2. URL: `https://blender.odv.hu/index.json`. Tick *Check for Updates on Startup*.
+3. Install *odv tools* from the list.
+
+**From a file** (no updates): download `odv_tools-X.Y.Z.zip` from the [Releases](https://github.com/odv-hu/blender/releases) page, then in *Edit › Preferences › Add-ons* click the ˅ menu at the top right and choose *Install from Disk…*.
 
 ## Tools
 
