@@ -17,7 +17,7 @@ Legend: **Tested** = a recorded check with named data · **In use** = used in ou
 | Validate and build `odv_tools-0.0.1.zip` | **Tested** | Blender 5.1.2, macOS, 2026-10-30: `extension validate` passes; `extension build` gives a 7.7 kB zip with the manifest, `LICENSE`, the packages and the READMEs, without the agent docs, `STATUS.md` or `CHANGELOG.md` |
 | Register and unregister | **Tested** | headless, below: panel on the *odv* tab, both operators present; nothing left after `unregister()` |
 | Release workflow (`.github/workflows/release.yml`): version checks, notes from `CHANGELOG.md`, build with Blender 5.1.2 on Linux, zip check, GitHub release | **Tested** (manual start) | run 41062487292, started by hand for `v0.0.1` on 2026-10-30: every step passed and it published the pre-release *odv tools 0.0.1* with `odv_tools-0.0.1.zip` (7,975 bytes, the same size as the local build). The push of the tag `v0.0.1` itself started no run; a tag push has not yet been seen to start the workflow |
-| Extension repository on GitHub Pages (`https://blender.odv.hu/index.json`, #4): `server-generate` in the release workflow, Pages deploy | Implemented | not yet run on GitHub. Checked locally on 2026-10-30: `server-generate --html` with Blender 5.1.2 on `odv_tools-0.0.1.zip` writes `index.json` (one package, `archive_url` `./odv_tools-0.0.1.zip`, size and SHA-256) and `index.html`; actionlint 1.7.7 passes on the workflow. DNS: `blender.odv.hu` CNAME `odv-hu.github.io.` seen through Google and Cloudflare DNS; `odv.hu` verified for the organisation |
+| Extension repository on GitHub Pages (`https://blender.odv.hu/index.json`, #4): `server-generate` in the release workflow, Pages deploy | **Tested** (manual start) | run 41065700587, started by hand for `v0.0.1` on 2026-10-30: the existing release was kept and its zip published; `https://blender.odv.hu/index.json` answers over HTTPS and lists `odv_tools` 0.0.1, the zip next to it is 7,975 bytes. The owner added the repository in Blender 5.1.2 (macOS) with *Check for Updates on Startup* and installed odv tools from it (`bl_ext.blender_odv_hu.odv_tools`, panel on the *odv* tab). Not yet seen: Blender offering an update (needs 0.0.2) |
 | Install from disk and use in the interactive Blender | **Tested** | owner, Blender 5.1.2 on macOS, 2026-10-30: `odv_tools-0.0.1.zip` installed from disk after uninstalling the stand-alone add-on, enabled as `bl_ext.user_default.odv_tools`, panel on the *odv* tab, update run on a real project |
 
 ### Archicad FBX Updater (`archicad/fbx_model_update/`)
@@ -46,6 +46,7 @@ Open bugs and limitations are GitHub issues (https://github.com/odv-hu/blender/i
 
 ## Most recently changed
 
+- **2026-10-30 (#4, Balázs + Claude):** GitHub Pages switched on (source *GitHub Actions*, tag rule `v*` on `github-pages`, custom domain `blender.odv.hu`); 0.0.1 published to the extension repository and installed from it in Blender.
 - **2026-10-30 (#4, Balázs + Claude):** the release workflow also publishes the extension repository `https://blender.odv.hu/index.json` on GitHub Pages; `blender.odv.hu` set up at dima.hu and `odv.hu` verified on GitHub.
 - **2026-10-30 (Balázs + Claude):** release workflow added: a pushed `vX.Y.Z` tag builds the zip with Blender and publishes the GitHub release.
 - **2026-10-30 (Balázs + Claude):** odv tools 0.0.1 released, after the owner installed it and ran it on a real project.
@@ -56,5 +57,4 @@ Open bugs and limitations are GitHub issues (https://github.com/odv-hu/blender/i
 
 - Archicad export settings for the add-on (#2).
 - The repository is public, and the commits from before the history rewrite can still be opened on GitHub by their hash. Leave them, ask GitHub Support to purge them, or recreate the repository?
-- GitHub settings for the extension repository (#4): Pages source *GitHub Actions*, a `v*` tag rule on the `github-pages` environment, then the custom domain `blender.odv.hu` with HTTPS (`docs/RELEASING.md`).
 - Area labels for issues (`archicad`, `rhino`, `blender`): create them?
