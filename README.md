@@ -22,3 +22,7 @@ blender/    work inside Blender itself (UV mapping, scene clean-up, …)
 
 Each tool gets its own folder under the app it starts from, with a README that says what it does and how to run it.
 A tool can be a single script run from Blender's Scripting workspace or an installable add-on.
+
+## Licence
+
+[MIT](LICENSE)
