@@ -1,20 +1,14 @@
-# fbx-model-update
+# Archicad FBX Updater
 
-Archicad FBX Updater: a Blender add-on that updates the Archicad model in a scene from a new FBX export with one click.
+Updates the Archicad model in a Blender scene from a new FBX export with one click.
 Materials, pass indices, modifiers and custom properties set up in Blender are kept.
 
-Requires Blender 5.0 or newer; used with Blender 5.1.
+Part of the odv tools extension; see the [main README](../../README.md#install) to install it. Requires Blender 5.0 or newer; used with Blender 5.1.
 
-## Install
+The panel is in the 3D Viewport sidebar (N), on the *odv* tab.
 
-1. Download [`ac_fbx_updater.py`](ac_fbx_updater.py) (*Download raw file* on GitHub), or clone the repo.
-2. In Blender, open *Edit › Preferences › Add-ons*, click the ˅ menu at the top right and choose *Install from Disk…*.
-3. Select `ac_fbx_updater.py`, then tick *Archicad FBX Updater* in the list to enable it.
-
-The panel appears in the 3D Viewport sidebar (N), on the *AC* tab.
-
-Blender copies the file into its own add-ons folder, so pulling a new version from the repo does not update the installed one.
-To update, install the new file the same way; it replaces the old one.
+**Coming from the stand-alone add-on** (`ac_fbx_updater.py`, *AC* tab): uninstall it before installing odv tools, because both define the same scene settings.
+The settings saved in `.blend` files (FBX path, collections, options) keep working.
 
 ## Export from Archicad
 

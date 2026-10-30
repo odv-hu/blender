@@ -1,0 +1,31 @@
+schema_version = "1.0.0"
+
+id = "odv_tools"
+version = "0.0.1"
+name = "odv tools"
+tagline = "Bring Archicad and Rhino models into Blender for rendering"
+maintainer = "o d v"
+type = "add-on"
+website = "https://github.com/odv-hu/blender"
+tags = ["Import-Export"]
+
+blender_version_min = "5.0.0"
+
+license = ["SPDX:MIT"]
+copyright = ["2026 o d v"]
+
+[permissions]
+files = "Import FBX files exported from Archicad"
+
+[build]
+paths_exclude_pattern = [
+  "__pycache__/",
+  ".*",
+  "*.zip",
+  "/dist/",
+  "/docs/",
+  "/AGENTS.md",
+  "/CLAUDE.md",
+  "/STATUS.md",
+  "/CHANGELOG.md",
+]

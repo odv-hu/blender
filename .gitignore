@@ -99,3 +99,5 @@ $RECYCLE.BIN/
 
 # Built Visual Studio Code Extensions
 *.vsix
+### Extension builds
+/dist/

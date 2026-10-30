@@ -22,7 +22,7 @@ The repository is public. It is built for our own projects and maintained as we 
 | | |
 |---|---|
 | Host | macOS, Blender 5.1. Archicad and Rhino are the source apps. |
-| Add-ons | The owner installs add-ons through *Preferences › Add-ons › Install from Disk*. Blender copies them into its user add-ons folder, so the installed copy is not updated by git. |
+| Extension | The Blender tools ship as one extension, `odv_tools` (`blender_manifest.toml`, #3). The owner installs the built zip from disk; the installed copy is not updated by git. |
 | Git client | The owner uses Fork. |
 
 ## Where the work happens
@@ -55,8 +55,10 @@ No milestones yet; the owner assigns them.
 - Do not name other companies' products or tools as the model for an approach in code or docs unless the owner asks for it.
 
 **Code**
-- Each tool lives in its own folder under the app it starts from (`archicad/`, `rhino/`, `blender/`), with a README that says what it does, how to install and use it, and its limitations.
-- Add-ons: bump the `bl_info` version for every behaviour change, and keep the minimum Blender version in `bl_info` and the README the same.
+- Each tool lives in its own folder under the app it starts from (`archicad/`, `rhino/`, `blender/`), with a README that says what it does, how to use it, and its limitations.
+- A Blender tool is a module of the `odv_tools` extension: a package `<app>/<tool>/` (underscores: it is a Python package) with `register()` and `unregister()`, listed in the root `__init__.py`. Its panel goes on the `odv` sidebar tab; class names start with `ODV_`, operator ids with `odv.`. Use relative imports.
+- One version for the whole extension, in `blender_manifest.toml`. Record user-visible changes in `CHANGELOG.md` under *Unreleased*; the version is set at release (`docs/RELEASING.md`).
+- Tools that run inside Rhino or Archicad are not part of the extension.
 - Do not change the owner's installed add-ons, Blender preferences or open scenes while editing code. Reading them (for example through a Blender MCP connection) is fine; running code that changes a scene needs his go-ahead; never save his `.blend` files.
 
 **Working with the owner**
@@ -68,13 +70,19 @@ No milestones yet; the owner assigns them.
 ## Verification
 
 - Run `python3 -m py_compile` on every changed Python file and `git diff --check` on the change.
+- For the extension: `blender --command extension validate .` and `blender --command extension build --output-dir dist`, then check the zip's contents.
+- A headless check in a background Blender (`blender --factory-startup -b --python <test>`) that loads the built package can exercise operators on synthetic data without touching the owner's Blender. Say what it covers and what it does not.
 - Blender-side behaviour can only be checked in Blender. Do not claim it works from reading the code: say what was not run, and describe the manual check (Blender version, scene, steps, expected result) for the owner.
 - A recorded check goes into `STATUS.md` with its date, Blender version and commit.
+
+## Releases
+
+Read and follow `docs/RELEASING.md` whenever asked to build, package or release a version. Committing, tagging, pushing and publishing a release are the owner's.
 
 ## Handoff
 
 List the changed files, the checks performed and their results, the issues worked on, and what is left.
 Distinguish edited, committed and pushed states explicitly.
 Remaining work goes into the issue thread or a new issue, not only into the handoff.
-Always recommend a short commit message in the form `[area] Description` (`[repo]`, `[docs]`, `[git]`, or the tool, e.g. `[fbx-model-update]`), with `Refs #n` or `Fixes #n` in the body for each issue it touches, ending with a `Co-Authored-By:` line naming the assistant.
+Always recommend a short commit message in the form `[area] Description` (`[repo]`, `[docs]`, `[git]`, `[release]`, or the tool, e.g. `[fbx_model_update]`), with `Refs #n` or `Fixes #n` in the body for each issue it touches, ending with a `Co-Authored-By:` line naming the assistant.
 Do not execute the commit without permission.

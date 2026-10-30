@@ -1,12 +1,8 @@
-bl_info = {
-    "name": "Archicad FBX Updater",
-    "author": "fb",
-    "version": (2, 0, 0),
-    "blender": (5, 0, 0),
-    "location": "3D View > Sidebar > AC",
-    "description": "Update an Archicad model from FBX, grouped by surface, preserving material overrides and pass indices",
-    "category": "Import-Export",
-}
+"""Archicad FBX Updater: update an Archicad model in the scene from a new FBX export.
+
+Groups the import by surface (material) and keeps the Blender-side materials,
+pass indices, modifiers and custom properties of existing objects.
+"""
 
 import re
 import bpy
@@ -209,8 +205,8 @@ def next_free_pass_index(collection):
 # operator
 # ---------------------------------------------------------------------------
 
-class AC_OT_update_from_fbx(bpy.types.Operator):
-    bl_idname = "ac.update_from_fbx"
+class ODV_OT_ac_update_from_fbx(bpy.types.Operator):
+    bl_idname = "odv.ac_update_from_fbx"
     bl_label = "Update model from FBX"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -264,8 +260,8 @@ class AC_OT_update_from_fbx(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class AC_OT_reindex(bpy.types.Operator):
-    bl_idname = "ac.reindex"
+class ODV_OT_ac_reindex(bpy.types.Operator):
+    bl_idname = "odv.ac_reindex"
     bl_label = "Assign pass indices"
     bl_description = "Give every object in the target collection a unique pass index"
     bl_options = {'REGISTER', 'UNDO'}
@@ -284,11 +280,11 @@ class AC_OT_reindex(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class AC_PT_panel(bpy.types.Panel):
+class ODV_PT_ac_fbx_updater(bpy.types.Panel):
     bl_label = "Archicad FBX Updater"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = "AC"
+    bl_category = "odv"
 
     def draw(self, context):
         s = context.scene
@@ -300,13 +296,13 @@ class AC_PT_panel(bpy.types.Panel):
         col.prop(s, "ac_clear_missing")
         col.prop(s, "ac_autoindex")
         col.separator()
-        col.operator("ac.update_from_fbx", icon='FILE_REFRESH')
-        col.operator("ac.reindex", icon='MATERIAL')
+        col.operator("odv.ac_update_from_fbx", icon='FILE_REFRESH')
+        col.operator("odv.ac_reindex", icon='MATERIAL')
 
 
 # ---------------------------------------------------------------------------
 
-classes = (AC_OT_update_from_fbx, AC_OT_reindex, AC_PT_panel)
+classes = (ODV_OT_ac_update_from_fbx, ODV_OT_ac_reindex, ODV_PT_ac_fbx_updater)
 
 
 def register():
@@ -334,6 +330,3 @@ def unregister():
     del bpy.types.Scene.ac_clear_missing
     del bpy.types.Scene.ac_autoindex
 
-
-if __name__ == "__main__":
-    register()
