@@ -1,14 +1,24 @@
-# Purpose of the script collection
-There are many workflow tasks which are hindering design: updating models from Archicad, UV-mapping, etc.
+# blender
 
-## Updating Archicad models
-This is the backbone script: the workflow should allow for a single-click update for the ARCHICAD MODEL collection in the scene.
-Current implementation works based on FBX models. You need to use the following settings in Archicad:
+```Built for our own projects, maintained as we need it. Issues are welcome, but don't expect us to implement them: we work on this at our own pace, as our projects demand.```
 
-1. File / Save As / FBX File (*.fbx)
-2. Create FBX meshes by: Surface (one mesh per surface)
-3. Surface settings to export: Export colors and transparency only.
-4. Texture handling: Embed textures in FBX setting is OFF (leave it unchecked)
+Tools that make it easier to move our work between Archicad, Rhino and Blender.
+We model in Archicad and Rhino and render in Blender, so Blender is the hub.
+The tools here bring models from the other two into a Blender scene and keep that scene up to date as the models change, so materials, UVs and lighting don't have to be redone after every change.
 
-This way we will get a stable structure from Archicad based on the Surface attributes.
-As materials will get updated in Blender anyway, we do not need any surface settings.
+## Tools
+
+| Tool | From | What it does |
+| --- | --- | --- |
+| [fbx-model-update](archicad/fbx-model-update/) | Archicad | Updates the Archicad model in a Blender scene from a new FBX export and keeps the materials set up in Blender. |
+
+## Layout
+
+```
+archicad/   Archicad → Blender
+rhino/      Rhino → Blender
+blender/    work inside Blender itself (UV mapping, scene clean-up, …)
+```
+
+Each tool gets its own folder under the app it starts from, with a README that says what it does and how to run it.
+A tool can be a single script run from Blender's Scripting workspace or an installable add-on.
