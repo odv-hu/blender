@@ -33,6 +33,7 @@ Make changes there, in the files the task names, and leave them for the owner to
 - Do not work in a separate clone (a cloud session, a temporary checkout) and push from it: the owner then has to fetch and pull changes he has not seen.
 - Do not commit, push, force-push, rewrite history, tag, create, switch or delete branches, or delete files without the owner's explicit permission. A request to change files authorises the change in the working tree, not a commit.
 - When the owner asks for a commit, commit in his local checkout. Pushing is his, unless he asks for it.
+- On GitHub, an agent may open issues, comment on them, and add the labels listed under "Issues and commits" (creating a listed label if it does not exist yet). Everything else needs the owner's explicit permission for that action: closing or reopening issues, editing or deleting issues and comments, milestones, releases, starting or cancelling workflow runs, and repository or organisation settings. Permission for one action does not carry over to the next.
 
 ## Issues and commits
 
@@ -41,11 +42,11 @@ The issue thread is where the context of a piece of work is kept, so that someon
 No milestones yet; the owner assigns them.
 
 - **Before starting:** work from an issue. Read it with its comments. If the task has none, find a matching one or open one (small housekeeping such as typos needs none).
-- **New problems:** a bug, limitation or follow-up you find but do not fix becomes a new issue, not a line in `STATUS.md` or a handoff note. Say what happens, where (tool, file, Blender version), the evidence (console output, scene, commit), and what "done" means. Labels: one type (`bug`, `limitation`, `enhancement`, `documentation`, `question`) and, once they exist, one area per source app (`archicad`, `rhino`, `blender`).
+- **New problems:** a bug, limitation or follow-up you find but do not fix becomes a new issue, not a line in `STATUS.md` or a handoff note. Say what happens, where (tool, file, Blender version), the evidence (console output, scene, commit), and what "done" means. Labels: one type (`bug`, `limitation`, `enhancement`, `documentation`, `question`, `release`) and, once they exist, one area per source app (`archicad`, `rhino`, `blender`).
 - **Commits:** every commit that works on an issue names it in the message body: `Refs #n` for progress, `Fixes #n` when the commit resolves it completely (GitHub closes it when the owner pushes to `main`).
 - **Context in the thread:** when you stop working on an issue, or learn something the next person needs, comment: what was done (commit hashes), the checks run and their results, decisions and who took them, and what is left. No raw logs.
 - **Owner decisions:** a question only the owner can answer goes into the issue as a comment ending with the question, with the `question` label; do not decide it in the code.
-- **Closing:** when an issue is resolved, update the tool's README and `STATUS.md` where the behaviour or the evidence changed.
+- **Closing:** an issue is closed by the owner's push of a commit with `Fixes #n`, or by the owner himself; never by an agent, even when its "done" condition is met. When an issue is resolved, update the tool's README and `STATUS.md` where the behaviour or the evidence changed, comment the evidence in the thread, and recommend a commit message with `Fixes #n`.
 - **Without GitHub access** (no `gh`, no network): put the issue text or comment in your final message under "For the issue tracker", with the issue number, for the owner to post.
 
 ## Rules
