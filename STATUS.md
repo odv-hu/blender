@@ -27,7 +27,11 @@ Nothing yet.
 ## Known bugs and limitations
 
 Open bugs and limitations are GitHub issues (https://github.com/odv-hu/blender/issues); this list is an index.
-None filed yet. The limitations known so far are in the tool's README.
+
+| Issue | Summary |
+|---|---|
+| #1 | Custom UV maps are lost on update (Archicad FBX Updater) |
+| #2 | Archicad export settings for the add-on to be confirmed (question) |
 
 ## Most recently changed
 
@@ -35,7 +39,7 @@ None filed yet. The limitations known so far are in the tool's README.
 
 ## Decisions waiting for the owner
 
-- Archicad export settings for the add-on: the add-on splits the import by material itself, so is "Create FBX meshes by: Surface" still needed?
+- Archicad export settings for the add-on (#2).
 - The repository is public, and the commits from before the history rewrite can still be opened on GitHub by their hash. Leave them, ask GitHub Support to purge them, or recreate the repository?
 - The installed add-on still has the comment that was reworded in the repository copy. Reinstall from the repository?
 - Area labels for issues (`archicad`, `rhino`, `blender`): create them?
