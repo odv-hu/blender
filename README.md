@@ -24,6 +24,7 @@ The tools appear in the 3D Viewport sidebar (N), on the *odv* tab.
 | Tool | From | What it does |
 | --- | --- | --- |
 | [Archicad FBX Updater](archicad/fbx_model_update/) | Archicad | Updates the Archicad model in a Blender scene from a new FBX export and keeps the materials, pass indices and modifiers set up in Blender. |
+| [Material ID](blender/material_id/) | Blender | Gives every material a fixed flat colour in its own render pass, for masks in post-production. |
 
 ## Layout
 
@@ -35,7 +36,7 @@ blender/    work inside Blender itself (UV mapping, scene clean-up, …)
 
 Each Blender tool is a module of the extension, in its own folder under the app it starts from, with a README that says what it does and how to use it.
 Tools that have to run inside Rhino or Archicad live under that app's folder too, but are not part of the Blender extension.
-Changes are listed in `CHANGELOG.md`; releases are described in `docs/RELEASING.md`.
+Headless tests are in `tests/`. Changes are listed in `CHANGELOG.md`; releases are described in `docs/RELEASING.md`.
 
 ## Licence
 

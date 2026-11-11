@@ -21,7 +21,7 @@ The repository is public. It is built for our own projects and maintained as we 
 
 | | |
 |---|---|
-| Host | macOS, Blender 5.1. Archicad and Rhino are the source apps. |
+| Host | macOS (Blender 5.1) and Windows (Blender 5.3). Archicad and Rhino are the source apps. |
 | Extension | The Blender tools ship as one extension, `odv_tools` (`blender_manifest.toml`, #3). Releases are installed from the extension repository `https://blender.odv.hu/index.json` (GitHub Pages, #4) or from the zip; the installed copy is not updated by git. |
 | Git client | The owner uses Fork. |
 
@@ -72,7 +72,7 @@ No milestones yet; the owner assigns them.
 
 - Run `python3 -m py_compile` on every changed Python file and `git diff --check` on the change.
 - For the extension: `blender --command extension validate .` and `blender --command extension build --output-dir dist`, then check the zip's contents.
-- A headless check in a background Blender (`blender --factory-startup -b --python <test>`) that loads the built package can exercise operators on synthetic data without touching the owner's Blender. Say what it covers and what it does not.
+- A headless check in a background Blender (`blender --factory-startup -b --python <test>`) that loads the built package can exercise operators on synthetic data without touching the owner's Blender. Say what it covers and what it does not. Keep such tests in `tests/` (not part of the extension); each says in its docstring how to run it.
 - Blender-side behaviour can only be checked in Blender. Do not claim it works from reading the code: say what was not run, and describe the manual check (Blender version, scene, steps, expected result) for the owner.
 - A recorded check goes into `STATUS.md` with its date, Blender version and commit.
 

@@ -7,7 +7,7 @@ tagline = "Bring Archicad and Rhino models into Blender for rendering"
 maintainer = "o d v"
 type = "add-on"
 website = "https://github.com/odv-hu/blender"
-tags = ["Import-Export"]
+tags = ["Import-Export", "Render"]
 
 blender_version_min = "5.0.0"
 
@@ -24,6 +24,7 @@ paths_exclude_pattern = [
   "*.zip",
   "/dist/",
   "/docs/",
+  "/tests/",
   "/AGENTS.md",
   "/CLAUDE.md",
   "/STATUS.md",

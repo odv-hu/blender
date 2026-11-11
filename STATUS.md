@@ -32,6 +32,17 @@ Legend: **Tested** = a recorded check with named data · **In use** = used in ou
 | Assign pass indices; auto pass index for new objects | **In use** | as above |
 | Import through either FBX importer (`wm.fbx_import` or `import_scene.fbx`) | Implemented | which one runs on Blender 5.1 is not recorded |
 
+### Material ID (`blender/material_id/`, #19)
+
+| Feature | Status | Evidence |
+|---|---|---|
+| *Assign material IDs*: colours from names kept ΔE 15 apart, stored on the materials; ID nodes in every material; AOV on the active or all scenes; repeat runs; hand-set and copied colours; *Re-roll*; *Remove material IDs* (with and without *Forget colours*); unregister | **Tested** headless; panel not yet seen | `tests/test_material_id.py`, `bpy` 5.3.0 (Blender as a Python module) on Linux, factory settings, 2026-11-11, working tree on `336116d`, from the working tree and from the built zip: 52 of 52 checks pass. Two scenes sharing one collection (three view layers), 14 materials. Repeat runs change no colour and add no node; *Active* puts the AOV on the active scene only, *All* once on every view layer; a hand-set colour is kept and applied; a copied material gets its own colour; two re-rolls give two new colours (ΔE ≥ 58 from all others); removal leaves no node and no AOV and keeps the colours, assigning again gives the same colours |
+| Beauty unchanged | **Tested** headless | same run: Cycles on the CPU, 200 × 100 px, 32 samples, fixed seed and threads; the beauty is pixel-identical (max difference 0.0) without the nodes, with them, and after removing them |
+| AOV values, transparency | **Tested** headless (Cycles); EEVEE probed | same run: opaque materials write their exact colour; behind a cut-out (Principled *Alpha* from a texture, and *Mix Shader* with *Transparent BSDF*) the colour behind is exact; a constant alpha of 0.5 (= *Alpha Threshold*) writes the material's exact colour; behind an alpha of 0.2 the colour behind is dimmed ×0.84; no material is black; 87.4 % of the pixels are exactly one ID colour (pixel filter 1.5 px). A probe without the mask showed the cause: Cycles adds the AOV of every surface up to the first with alpha ≥ threshold, so a fully transparent card wrote its colour on top of the one behind. Probe, same set-up: through a *File Output* node with the *Standard* view, 16-bit PNG, Cycles gave the exact colour (0, 128, 255); EEVEE dithers partial alpha and was off by about 1/65535 |
+| ID nodes and colours survive an update with the Archicad FBX Updater | **Tested** headless | same run: synthetic FBX export of three surfaces (Wall, Floor, Brick), *Update model from FBX* into the collection: the three materials keep their ID nodes and colours, no `.001` materials left |
+| Colours on a real project | **Tested** read-only | owner's Blender 5.3.0 on Windows, 2026-11-11, a real project file (5 scenes, one shared collection, 65 materials, all pass indices 0), file not changed: colours computed only, closest pair ΔE 15.2, 40 of 65 straight from the name (from the names alone: one identical pair and 10 closer than ΔE 5); the same 65 colours as `bpy` 5.3.0 on Linux (equal digest); four materials with a constant alpha (0, 0.31, 0.77, 0.78) recognised, the 0.31 one below the threshold. Not run on it: *Assign*, a render of the ID |
+| Panel in the interactive Blender, ID render of a real scene | Implemented | not run |
+
 ### Rhino → Blender
 
 Nothing yet.
@@ -47,6 +58,7 @@ Open bugs and limitations are GitHub issues (https://github.com/odv-hu/blender/i
 
 ## Most recently changed
 
+- **2026-11-11 (#19, Balázs + Claude):** new tool *Material ID*: one fixed flat colour per material in the AOV `odv_matid`, masked by transparency; headless test `tests/test_material_id.py`; read-only check of the colours on a real project. Not yet released.
 - **2026-11-11 (#10, Balázs + Claude):** Archicad FBX Updater: optional *Merge by distance* and *Smooth by angle* during an update, off by default; tested headless, released as 0.0.3.
 - **2026-10-30 (#4, Balázs + Claude):** 0.0.2 released by a tag push and offered as an update in Blender; #4 closed.
 - **2026-10-30 (#5, Balázs + Claude):** Archicad FBX Updater panel: tooltips, update button disabled without an FBX, *Options* box and closed *Collections* sub-panel; released as 0.0.2.
