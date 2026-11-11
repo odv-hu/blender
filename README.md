@@ -25,6 +25,7 @@ The tools appear in the 3D Viewport sidebar (N), on the *odv* tab.
 | --- | --- | --- |
 | [Archicad FBX Updater](archicad/fbx_model_update/) | Archicad | Updates the Archicad model in a Blender scene from a new FBX export and keeps the materials, pass indices and modifiers set up in Blender. |
 | [Material ID](blender/material_id/) | Blender | Gives every material a fixed flat colour in its own render pass, for masks in post-production. |
+| [Post-production output](blender/post_output/) | Blender | Per camera, a final-look 16-bit beauty, the material ID file and both as one layered PSD. Built around the third-party camera add-on [Photographer](https://sites.google.com/view/photographer-5-documentation/) and its render queue. |
 
 ## Layout
 

@@ -20,7 +20,7 @@ The panel is in the 3D Viewport sidebar (N), on the *odv* tab.
 The result is shown in the status bar. The system console lists the materials whose ID follows their transparency, linked materials that were skipped, and the five closest pairs of colours.
 
 To see the pass in Blender: in the 3D Viewport in *Rendered* shading, choose `odv_matid` in the *Render Pass* menu of the shading popover; in the compositor, the *Render Layers* node has an `odv_matid` output.
-Writing the pass to a file is not part of this tool yet (#20).
+To write the pass to a file next to each render, and into a layered PSD with the beauty, use [Post-production output](../post_output/).
 
 ## How the colours are chosen
 

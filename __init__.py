@@ -5,9 +5,9 @@ and draws its panel in the 3D Viewport sidebar, on the odv tab.
 """
 
 from .archicad import fbx_model_update
-from .blender import material_id
+from .blender import material_id, post_output
 
-modules = (fbx_model_update, material_id)
+modules = (fbx_model_update, material_id, post_output)
 
 
 def register():
