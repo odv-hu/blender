@@ -52,7 +52,7 @@ jobs:
       GH_REPO: ${{ github.repository }}
       TAG: ${{ inputs.tag || github.ref_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: refs/tags/${{ inputs.tag || github.ref_name }}
 
@@ -122,9 +122,9 @@ jobs:
           ls -l "$RUNNER_TEMP/site"
           python3 -c "import json, sys; d = json.load(open(sys.argv[1])); print(json.dumps(d, indent=2))" "$RUNNER_TEMP/site/index.json"
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: ${{ runner.temp }}/site
 
       - name: Deploy to GitHub Pages
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
