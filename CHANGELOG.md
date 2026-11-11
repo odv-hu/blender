@@ -13,6 +13,8 @@ Versions follow semantic versioning; tags are `vX.Y.Z` on `main` (see `docs/RELE
 
 ## 0.0.3 (2026-11-11)
 
+Tagged but never published; these changes were first released in 0.0.4.
+
 ### Added
 
 - Archicad FBX Updater (#10): optional *Clean-up* during an update, both off by default. *Merge by distance* welds the separate triangles of each surface and removes faces without area, so modifiers such as Bevel work; *Smooth by angle* shades smooth with sharp edges above an angle, replacing the normals from the FBX.

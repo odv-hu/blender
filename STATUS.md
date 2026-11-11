@@ -1,6 +1,6 @@
 # STATUS
 
-**Documented state:** odv tools 0.0.4 (2026-11-11): new tool *Material ID*, one fixed flat colour per material in the AOV `odv_matid` (#19). 0.0.3 (2026-11-11): optional clean-up on update in the Archicad FBX Updater, *Merge by distance* and *Smooth by angle* (#10). 0.0.2 (2026-10-30): panel improvements of the Archicad FBX Updater (#5), released to test updates from the extension repository (#4). 0.0.1 was the first release: the Blender tools packaged as one extension (#3).
+**Documented state:** odv tools 0.0.4 (2026-11-11): new tool *Material ID*, one fixed flat colour per material in the AOV `odv_matid` (#19). 0.0.3 (2026-11-11, tagged but never published; its changes were first released in 0.0.4): optional clean-up on update in the Archicad FBX Updater, *Merge by distance* and *Smooth by angle* (#10). 0.0.2 (2026-10-30): panel improvements of the Archicad FBX Updater (#5), released to test updates from the extension repository (#4). 0.0.1 was the first release: the Blender tools packaged as one extension (#3).
 
 **Review status.** The code was written with AI assistance: the first updater script with ChatGPT (2026-04), the Archicad FBX Updater add-on v2.0.0 in an AI-assisted session that was not recorded (2026-08-26).
 Neither has been reviewed line by line.
@@ -60,7 +60,7 @@ Open bugs and limitations are GitHub issues (https://github.com/odv-hu/blender/i
 
 - **2026-11-11 (#18, Balázs + Claude):** release workflow moved to actions that run on Node 24: `actions/checkout@v7`, `actions/upload-pages-artifact@v5`, `actions/deploy-pages@v5`; the `v0.0.4` run 42983635045 passed every step without the Node 20 warning, published the GitHub release and the extension repository listing 0.0.4.
 - **2026-11-11 (#19, Balázs + Claude):** new tool *Material ID*: one fixed flat colour per material in the AOV `odv_matid`, masked by transparency; headless test `tests/test_material_id.py`; read-only check of the colours on a real project. Released as 0.0.4.
-- **2026-11-11 (#10, Balázs + Claude):** Archicad FBX Updater: optional *Merge by distance* and *Smooth by angle* during an update, off by default; tested headless, released as 0.0.3.
+- **2026-11-11 (#10, Balázs + Claude):** Archicad FBX Updater: optional *Merge by distance* and *Smooth by angle* during an update, off by default; tested headless. Tagged as 0.0.3, but the release run 42978040640 failed (the tag was on `39b0746`, before the version bump) and 0.0.3 was never published; first released in 0.0.4.
 - **2026-10-30 (#4, Balázs + Claude):** 0.0.2 released by a tag push and offered as an update in Blender; #4 closed.
 - **2026-10-30 (#5, Balázs + Claude):** Archicad FBX Updater panel: tooltips, update button disabled without an FBX, *Options* box and closed *Collections* sub-panel; released as 0.0.2.
 - **2026-10-30 (#4, Balázs + Claude):** GitHub Pages switched on (source *GitHub Actions*, tag rule `v*` on `github-pages`, custom domain `blender.odv.hu`); 0.0.1 published to the extension repository and installed from it in Blender.
