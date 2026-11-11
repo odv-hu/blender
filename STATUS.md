@@ -1,6 +1,6 @@
 # STATUS
 
-**Documented state:** odv tools 0.0.2 (2026-10-30): panel improvements of the Archicad FBX Updater (#5), released to test updates from the extension repository (#4). 0.0.1 was the first release: the Blender tools packaged as one extension (#3).
+**Documented state:** odv tools 0.0.3 (2026-11-11): optional clean-up on update in the Archicad FBX Updater, *Merge by distance* and *Smooth by angle* (#10). 0.0.2 (2026-10-30): panel improvements of the Archicad FBX Updater (#5), released to test updates from the extension repository (#4). 0.0.1 was the first release: the Blender tools packaged as one extension (#3).
 
 **Review status.** The code was written with AI assistance: the first updater script with ChatGPT (2026-04), the Archicad FBX Updater add-on v2.0.0 in an AI-assisted session that was not recorded (2026-08-26).
 Neither has been reviewed line by line.
@@ -47,7 +47,7 @@ Open bugs and limitations are GitHub issues (https://github.com/odv-hu/blender/i
 
 ## Most recently changed
 
-- **2026-11-11 (#10, Balázs + Claude):** Archicad FBX Updater: optional *Merge by distance* and *Smooth by angle* during an update, off by default; tested headless, not yet released.
+- **2026-11-11 (#10, Balázs + Claude):** Archicad FBX Updater: optional *Merge by distance* and *Smooth by angle* during an update, off by default; tested headless, released as 0.0.3.
 - **2026-10-30 (#4, Balázs + Claude):** 0.0.2 released by a tag push and offered as an update in Blender; #4 closed.
 - **2026-10-30 (#5, Balázs + Claude):** Archicad FBX Updater panel: tooltips, update button disabled without an FBX, *Options* box and closed *Collections* sub-panel; released as 0.0.2.
 - **2026-10-30 (#4, Balázs + Claude):** GitHub Pages switched on (source *GitHub Actions*, tag rule `v*` on `github-pages`, custom domain `blender.odv.hu`); 0.0.1 published to the extension repository and installed from it in Blender.
