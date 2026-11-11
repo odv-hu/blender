@@ -7,6 +7,7 @@ Per camera, three files for post-production that open in the image editor lookin
 | `<name>.png` | The beauty: 16-bit PNG with alpha, the scene's view transform applied. |
 | `<name>_matid.png` | The [Material ID](../material_id/) pass: 16-bit PNG, written with the *Standard* view so the ID colours are exact. |
 | `<name>.psd` | Both as one layered 16-bit PSD: `matid` on top (hidden), `beauty` below (visible, alpha as layer transparency). In a photo-match scene the render, its shadows and the photo are separate layers instead; see [Photo match](#photo-match). |
+| `<name>_<pass>.png` | Optional [extra passes](#extra-passes) as post-production aids (mist, AO, light groups, …), each also a hidden layer in the PSD. |
 
 Part of the odv tools extension; see the [main README](../../README.md#install) to install it. Requires Blender 5.0 or newer; checked with Blender 5.3 on Windows.
 
@@ -37,6 +38,7 @@ Photographer 5.8.4 keeps references to the File Output items it renames in a lis
 | **Layered PSD** | Write `<name>.psd` after each render. |
 | **Keep separate files** | Keep the beauty and ID PNGs next to the PSD. When off, they are deleted once the PSD has been written and read back; if anything fails, they are kept. |
 | **Save F12 renders** | After an F12 render, save the beauty to the output path and write the PSD. When off, an F12 render is not saved; *Image › Save Layered PSD* in the Image Editor saves the last one. |
+| **Extra passes** (sub-panel) | The [extra passes](#extra-passes), ticked one by one or with a preset. |
 
 The box below the settings shows what is missing: output format, output path, the AOV, the ID node, compositing.
 The result of each PSD is shown in the status bar and the system console.
@@ -66,8 +68,37 @@ Measured on a real project (Blender 5.3, Standard view, synthetic black-and-whit
 
 What does not match:
 - **Object edges.** The anti-aliased edge pixels of the render (1–2 px) still blend on display values: on the checker, 16 of 255 on average, up to 70. The hidden `composite` layer is Blender's exact result.
-- **Light on the shadow catcher.** Light that other objects bounce or reflect onto a shadow catcher is in the *Combined* pass as colour without alpha, which a layer with straight alpha cannot carry. It is missing from the stack (on the real project, 0.13 % of the transparent pixels, up to 36 of 255) but is in `composite`.
+- **Light on the shadow catcher.** Light that other objects bounce or reflect onto a shadow catcher is in the *Combined* pass as colour without alpha, which a layer with straight alpha cannot carry. It is missing from the stack (on the real project, 0.13 % of the transparent pixels, up to 36 of 255) but is in `composite`. (#30)
 - **View transforms other than Standard.** The shadow and photo layers match only with the *Standard* view and no look; *Set up* warns otherwise. Photo matches usually use Standard so that the photo stays as it is.
+
+## Extra passes
+
+Post-production aids for painting over and adjusting: masks, haze, light. The beauty is always delivered as rendered; these passes are not meant to rebuild it.
+Each ticked pass is written as `<name>_<pass>.png` and becomes a hidden layer in the PSD, with the blend mode it is usually used with.
+
+| Pass | Layer | Blend | From Cycles | Written as |
+| --- | --- | --- | --- | --- |
+| Mist | `mist` | Screen | Mist pass; *Start* and *Depth* (the world's mist settings) in the panel | greyscale, stretched to black–white per image |
+| AO | `ao` | Multiply | Ambient Occlusion pass; *AO distance* in the panel | greyscale, stretched to black–white per image |
+| Light groups | `light_<group>` | Linear Dodge (Add) | one per light group of the view layer (*View Layer › Light Groups*) | colour, scene view transform, denoised |
+| Reflection | `reflection` | Linear Dodge (Add) | (Glossy Direct + Indirect) × Glossy Color | colour, scene view transform, denoised |
+| Refraction | `refraction` | Linear Dodge (Add) | (Transmission Direct + Indirect) × Transmission Color | colour, scene view transform, denoised |
+| Emission | `emission` | Linear Dodge (Add) | Emission pass | colour, scene view transform |
+| Environment | `environment` | Linear Dodge (Add) | Environment pass | colour, scene view transform |
+| Albedo | `albedo` | Normal | Diffuse Color pass | colour, scene view transform |
+| Custom AOVs | `aov_<name>` | Normal | every AOV of the view layer except `odv_matid` | exact values, Standard view |
+
+Layer order, top to bottom: `matid`, custom AOVs, `mist`, `ao`, the Add layers, `albedo`, then the beauty (or the photo-match layers). All extra layers are hidden.
+
+**Presets.** *Minimal*: no extra passes. *Photo match*: AO. *Full*: everything except environment and albedo. A preset ticks its passes and runs *Set up output*; ticking by hand takes effect with the next *Set up output*. The status box says when the ticks and the set-up differ.
+
+**One layer per pass.** The checklist adds to what *Set up* already puts into the PSD: `render`, `shadow` and `photo` in a photo match, and `matid`. The shadow catcher is not in the checklist because a photo match delivers it as `shadow` already.
+
+**Set up output** turns on the Cycles passes the ticked aids need and adds two File Output nodes: `odv_aids` (mist and AO, *Raw* view, so the values are linear before stretching) and `odv_light` (light groups and light passes, the scene's view transform). Custom AOVs go to the ID node (`odv_matid`, Standard view). Light groups, reflection and refraction get a compositor *Denoise* node each (*Denoise light passes*, on by default), because Cycles denoises only the Combined pass. Unticking a pass and running *Set up* again removes its nodes and items; the Cycles passes stay on.
+
+**Stretched per image.** Mist and AO are stretched from the darkest to the lightest value of each render, so the same grey means different distances in different cameras. They are meant to be adjusted in post.
+
+**Add layers are brighter than Blender.** An image editor adds the layers' display values, Blender adds light in linear light. Measured (headless, Standard view, two light groups covering every light): in linear light the light groups add up to the beauty exactly (max difference 0.0 of 255), on display values the Add stack is brighter by 37 of 255 on average, up to 52. Switch them on one at a time, or lower their opacity.
 
 ## When the PSD is written
 
@@ -82,14 +113,16 @@ The PSD is written on a separate thread after the render, so neither the interfa
 
 ## The PSD
 
-- 16-bit RGB, the canvas size of the render, with the beauty's colour profile (sRGB from Blender) embedded.
-- Layers: `matid` (Normal, 100 %, hidden) above `beauty` (Normal, 100 %, visible; the render's alpha as layer transparency, straight, not premultiplied).
+- 16-bit RGB, the canvas size of the render, with the beauty's colour profile (sRGB from Blender) embedded. Blender 5.0 and 5.1 write the PNG without a profile, so the PSD has none either; image editors then assume sRGB.
+- Layers: `matid` (Normal, 100 %, hidden) above `beauty` (Normal, 100 %, visible; the render's alpha as layer transparency, straight, not premultiplied); the [extra passes](#extra-passes) between them, hidden.
 - Layer channels ZIP-compressed with prediction; the merged composite uncompressed, so that the PSD thumbnail handler on Windows can draw a preview.
 - Written by a small writer in this module (`psd.py`, numpy and the Python standard library only); checked in the image editor on Windows (#21).
 
 ## Limitations
 
 - Stills only; animations are not handled.
+- Extra passes not yet available: an edge mask (#27), object IDs (#28), line art (#29).
+- Light groups and light passes stacked as Add layers do not add up to the beauty in the image editor (see [Extra passes](#extra-passes)).
 - Only the photo-match set-up described above is recognised: an *Alpha Over* fed by the *Render Layers* image, directly before the output. Other compositor set-ups give the scene's output as one `beauty` layer.
 - Uses `Scene.compositing_node_group`, which Blender 5.3 marks as deprecated, to be removed in Blender 6.0. Photographer uses it too.
 - If the output format is changed after *Set up* to one that stores premultiplied alpha (Blender's TIFF does), the colour is converted back to straight alpha, which loses precision where the beauty is nearly transparent.
@@ -104,3 +137,4 @@ Blender 5.3, a scene with material IDs assigned and two cameras:
 4. Photographer's render queue, renderable cameras, `$camera` in the output path: the files for each camera.
 5. Photo-match scene: *Set up output* again; F12; the PSD has `render`, `shadow` (Multiply) and `photo` visible, and switching `composite` on shows nearly the same image.
 6. *Keep separate files* off, F12: only the PSD is left.
+7. A scene with two light groups, a glass and an emitting object: *Extra passes › Full*; the status box shows *Extra passes* ticked. F12: the PSD has the beauty visible and hidden layers `light_<group>`, `reflection`, `refraction`, `emission` (Linear Dodge), `ao` (Multiply), `mist` (Screen) under `matid`; mist and AO span black to white. *Minimal*: the extra nodes are gone from the compositor.

@@ -5,6 +5,16 @@ Versions follow semantic versioning; tags are `vX.Y.Z` on `main` (see `docs/RELE
 
 ## Unreleased
 
+## 0.0.6 (2026-11-11)
+
+### Added
+
+- Post-production output: extra passes as post-production aids (#22), in the *Extra passes* sub-panel with the presets *Minimal*, *Photo match* and *Full*: mist and AO (greyscale, stretched to black–white per image), light groups, reflection, refraction, emission, environment and albedo (scene view transform; light groups, reflection and refraction denoised in the compositor), and the view layer's own AOVs (exact values). Each ticked pass is written as `<name>_<pass>.png` and becomes a hidden PSD layer with its blend mode (Screen, Multiply, Linear Dodge or Normal). A pass the PSD already has, such as the shadow in a photo match, is never added twice.
+
+### Fixed
+
+- Post-production output wrote no PSD in Blender 5.0 and 5.1: the File Output node there has no *use file extension* setting, and reading it failed when the render started. Found while preparing this release; 0.0.5 was affected.
+
 ## 0.0.5 (2026-11-11)
 
 ### Added

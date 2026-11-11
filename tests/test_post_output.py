@@ -20,8 +20,13 @@ PNG files, the merged composite, the ICC profile), the ID colours, *Keep
 separate files* off, a premultiplied TIFF beauty, a muted ID node, an F12-style
 render saved from the render result, the Image Editor operator, a photo-match
 compositor (render, Shadow Catcher pass and photo as separate layers, the
-multiply added to the compositor, the stack against Blender's composite), and
-unregister.
+multiply added to the compositor, the stack against Blender's composite), the
+extra passes of #22 (the Full preset: Cycles passes, File Output, Mix and
+Denoise nodes, hidden PSD layers in their order and blend modes, mist and AO
+stretched per image, the other layers bit-exact against their files; a
+measurement of light groups added on display values against the beauty; the
+Minimal preset taking everything out again; the Photo match preset in a photo
+match without a second shadow layer), and unregister.
 
 Not covered: the interactive Blender (the render thread, the timer and worker
 thread that run there instead of the synchronous path used in background
@@ -210,7 +215,10 @@ for cam in cams:
     check(np.array_equal(layers["matid"][..., :3], idpx[..., :3]) and (layers["matid"][..., 3] == 65535).all(),
           f"{cam.name}: matid layer = ID PNG, opaque")
     check(np.array_equal(composite, po.psd.flatten_over_white(beauty)), f"{cam.name}: composite = beauty over white")
-    check(icc is not None and len(icc) > 100, f"{cam.name}: ICC profile embedded ({len(icc or b'')} bytes)")
+    # Blender 5.0 and 5.1 write PNGs without an ICC profile; then the PSD has none either.
+    png_icc = po.read_image(stem + ".png")[1]
+    check(icc == png_icc and (png_icc is None or len(icc) > 100) and (png_icc or bpy.app.version < (5, 2, 0)),
+          f"{cam.name}: the beauty's ICC profile embedded ({len(icc or b'')} bytes)")
     check((beauty[..., 3] == 0).any() and (beauty[..., 3] == 65535).any(), f"{cam.name}: beauty has transparent and opaque pixels")
     colours = {tuple(c) for c in idpx[..., :3].reshape(-1, 3)}
     for mname, c in ids.items():
@@ -285,6 +293,143 @@ check(not os.path.exists(stem + ".png") and not os.path.exists(stem + ".psd"),
 check(bpy.ops.odv.post_save_render() == {'FINISHED'} and os.path.exists(stem + ".psd")
       and po.psd.read_summary(stem + ".psd")["layers"] == [("beauty", True, "norm"), ("matid", False, "norm")],
       "Image Editor operator: beauty and PSD saved afterwards")
+
+# --- extra passes (#22) ------------------------------------------------------------------
+
+s = scene.odv_post
+vl = scene.view_layers[0]
+for name in ("key", "fill"):
+    vl.lightgroups.add().name = name
+mask_aov = vl.aovs.add()
+mask_aov.name, mask_aov.type = "mask", 'VALUE'
+key = bpy.data.objects.new("Key", bpy.data.lights.new("Key", 'POINT'))
+key.data.energy = 400.0
+key.location = (-2, -3, 3)
+scene.collection.objects.link(key)
+key.lightgroup = "key"
+world.lightgroup = "fill"
+lamp = box("Lamp", (-1.0, -0.8, 0.6), (0.3, 0.3, 0.3), (1, 1, 1, 1))
+lamp_bsdf = lamp.node_tree.nodes["Principled BSDF"]
+lamp_bsdf.inputs["Emission Color"].default_value = (1.0, 0.6, 0.2, 1)
+lamp_bsdf.inputs["Emission Strength"].default_value = 5.0
+aov_out = lamp.node_tree.nodes.new("ShaderNodeOutputAOV")
+aov_out.aov_name = "mask"
+aov_out.inputs["Value"].default_value = 1.0
+glass = box("Glass", (1.0, -1.5, 0.2), (0.5, 0.1, 0.8), (0.9, 0.95, 1.0, 1))
+glass.node_tree.nodes["Principled BSDF"].inputs["Transmission Weight"].default_value = 1.0
+
+check(bpy.ops.odv.post_preset(preset='FULL') == {'FINISHED'}, "Full preset")
+check([k for k in po.PASSES if getattr(s, "pass_" + k)] == list(po.PRESETS["FULL"][2]),
+      "Full preset ticks every pass except environment and albedo")
+check(vl.use_pass_mist and vl.use_pass_ambient_occlusion and vl.use_pass_glossy_direct
+      and vl.use_pass_glossy_indirect and vl.use_pass_glossy_color and vl.use_pass_transmission_direct
+      and vl.use_pass_transmission_indirect and vl.use_pass_transmission_color and vl.use_pass_emit,
+      "Full preset: the matching Cycles passes are on")
+g = scene.compositing_node_group
+aids, light = g.nodes.get(po.AIDS_NODE), g.nodes.get(po.LIGHT_NODE)
+check(aids is not None and [i.name for i in aids.file_output_items] == ["mist", "ao"]
+      and aids.format.color_mode == 'RGB' and aids.format.color_management == 'OVERRIDE'
+      and aids.format.view_settings.view_transform == 'Raw',
+      "mist and AO File Output: RGB, Raw view")
+check(light is not None and [i.name for i in light.file_output_items]
+      == ["light_key", "light_fill", "reflection", "refraction", "emission"]
+      and light.format.color_mode == 'RGB' and light.format.color_management == 'FOLLOW_SCENE',
+      "light File Output: light groups, reflection, refraction, emission; RGB, scene view transform")
+check([i.name for i in node.file_output_items] == ["matid", "aov_mask"], "custom AOV on the ID node (Standard view)")
+dn = sorted(n.name for n in g.nodes if n.name.startswith("odv_dn_"))
+check(dn == ["odv_dn_light_fill", "odv_dn_light_key", "odv_dn_reflection", "odv_dn_refraction"]
+      and all(g.nodes[n].bl_idname == "CompositorNodeDenoise" for n in dn),
+      "a Denoise node per light group and for reflection and refraction")
+mix = g.nodes.get("odv_mix_reflection_colour")
+check(mix is not None and mix.blend_type == 'MULTIPLY'
+      and po._socket(mix.inputs, "B_Color").links[0].from_socket.name == "Glossy Color"
+      and po._socket(mix.inputs, "A_Color").links[0].from_node.name == "odv_mix_reflection_add",
+      "reflection = (glossy direct + indirect) x glossy colour")
+names_before = sorted(n.name for n in g.nodes)
+check(bpy.ops.odv.post_setup() == {'FINISHED'} and sorted(n.name for n in g.nodes) == names_before,
+      "Set up again: no extra nodes")
+check(all(ok for ok, _ in po.status_lines(scene, vl)), "status box: every line ticked")
+
+world.mist_settings.start, world.mist_settings.depth = 0.0, 50.0
+stem = render("passes")
+want_passes = [("beauty", True, "norm"), ("light_key", False, "lddg"), ("light_fill", False, "lddg"),
+               ("reflection", False, "lddg"), ("refraction", False, "lddg"), ("emission", False, "lddg"),
+               ("ao", False, "mul "), ("mist", False, "scrn"), ("aov_mask", False, "norm"),
+               ("matid", False, "norm")]
+ok = os.path.exists(stem + ".psd")
+check(ok and po.psd.read_summary(stem + ".psd")["layers"] == want_passes,
+      "extra passes: hidden layers in order (Add, Multiply, Screen, Normal) below matid, above beauty")
+if ok:
+    layers, composite, _ = read_psd(stem + ".psd")
+    files = {role: raw(f"{stem}_{role}.png") for role, _, _ in want_passes[1:-1]}
+    for role in ("mist", "ao"):
+        v = layers[role]
+        check(v[..., 0].min() == 0 and v[..., 0].max() == 65535 and (v[..., 0] == v[..., 1]).all()
+              and (v[..., 0] == v[..., 2]).all(),
+              f"{role}: greyscale stretched to 0-65535 (file {files[role][..., 0].min()}-{files[role][..., 0].max()})")
+        check(np.array_equal(v[..., :3], po._stretch(files[role])), f"{role}: layer = its file, stretched")
+    check(files["mist"][..., 0].min() > 0, "mist: the file does not reach black, so the stretch is exercised")
+    check(all(np.array_equal(layers[role][..., :3], files[role][..., :3]) for role in files
+              if role not in ("mist", "ao")),
+          "light, reflection, refraction, emission and AOV layers = their files, bit-exact")
+    check(all(files[role][..., :3].max() > 0 for role in files), "every extra pass has content")
+    check(files["aov_mask"][..., :3].max() == 65535, "the custom AOV carries the mask")
+    check(np.array_equal(composite, po.psd.flatten_over_white(raw(stem + ".png"))),
+          "extra passes: composite unchanged (beauty over white)")
+
+# Light groups added on display values against the beauty (#22: Add layers are aids).
+# Every emitter in a light group, Standard view, no denoising, so that the light groups
+# add up to the beauty in linear light.
+lamp_ob = bpy.data.objects["Lamp"]
+lamp_ob.lightgroup = "key"
+view_before = scene.view_settings.view_transform
+scene.view_settings.view_transform, scene.view_settings.look = 'Standard', 'None'
+denoise_before = scene.cycles.use_denoising
+scene.cycles.use_denoising = False
+s.denoise = False
+bpy.ops.odv.post_setup()
+check(not any(n.name.startswith("odv_dn_") for n in g.nodes)
+      and light.inputs["light_key"].links[0].from_socket.name == "Combined_key",
+      "Denoise light passes off: Denoise nodes removed, light groups linked directly")
+stem = render("lightsum")
+L, _, _ = read_psd(stem + ".psd")
+b = raw(stem + ".png").astype(np.float64) / 65535
+op = b[..., 3] == 1.0
+
+
+def lin(x):
+    return np.where(x <= 0.04045, x / 12.92, ((x + 0.055) / 1.055) ** 2.4)
+
+
+def enc(x):
+    x = np.clip(x, 0, 1)
+    return np.where(x <= 0.0031308, x * 12.92, 1.055 * x ** (1 / 2.4) - 0.055)
+
+
+k, f_ = (L[n][..., :3].astype(np.float64) / 65535 for n in ("light_key", "light_fill"))
+d_add = (np.clip(k + f_, 0, 1) - b[..., :3])[op] * 255
+d_lin = (enc(lin(k) + lin(f_)) - b[..., :3])[op] * 255
+check(np.abs(d_lin).mean() < 1.0, f"light groups summed in linear light = the beauty: mean "
+      f"{np.abs(d_lin).mean():.2f}, max {np.abs(d_lin).max():.1f} of 255 ({int(op.sum())} opaque px)")
+both = op & (k.max(-1) > 0.02) & (f_.max(-1) > 0.02)
+d_both = (np.clip(k + f_, 0, 1) - b[..., :3])[both] * 255
+print(f"     Add on display values against the beauty: mean {d_add.mean():+.1f}, max {d_add.max():+.1f} of 255 "
+      f"over opaque px; where both groups light the pixel ({int(both.sum())} px): mean {d_both.mean():+.1f}, "
+      f"max {d_both.max():+.1f}")
+scene.view_settings.view_transform = view_before
+scene.cycles.use_denoising = denoise_before
+s.denoise = True
+
+check(bpy.ops.odv.post_preset(preset='MINIMAL') == {'FINISHED'} and g.nodes.get(po.AIDS_NODE) is None
+      and g.nodes.get(po.LIGHT_NODE) is None and not any(n.name.startswith(po.HELPER_PREFIXES) for n in g.nodes)
+      and [i.name for i in node.file_output_items] == ["matid"],
+      "Minimal preset: extra File Output, Mix and Denoise nodes and the AOV item removed")
+stem = render("minimal")
+check(po.psd.read_summary(stem + ".psd")["layers"] == [("beauty", True, "norm"), ("matid", False, "norm")],
+      "Minimal preset: PSD with beauty and matid only")
+for o in ("Lamp", "Glass", "Key"):
+    bpy.data.objects.remove(bpy.data.objects[o])
+world.lightgroup = ""
 
 # --- photo match: render over a photo with a shadow catcher -----------------------------
 
@@ -404,6 +549,19 @@ bpy.utils.unregister_class(RENDER_OT_renderqueue)
 stem = render("pm_noshadow")
 check(po.psd.read_summary(stem + ".psd")["layers"] == [l for l in want if l[0] != "shadow"],
       "photo match without shadow catchers: PSD without the shadow layer")
+
+# Photo match preset in a photo match: AO is added; the shadow catcher, which the
+# photo match delivers as its shadow layer already, does not get a second layer.
+bpy.data.objects["Ground"].is_shadow_catcher = True
+check(bpy.ops.odv.post_preset(preset='PHOTO') == {'FINISHED'}
+      and [i.name for i in node.file_output_items] == ["matid", "shadow"]
+      and [i.name for i in g.nodes[po.AIDS_NODE].file_output_items] == ["ao"],
+      "Photo match preset in a photo match: AO set up, shadow once")
+stem = render("pm_preset")
+check(po.psd.read_summary(stem + ".psd")["layers"]
+      == [("photo", True, "norm"), ("shadow", True, "mul "), ("render", True, "norm"),
+          ("composite", False, "norm"), ("ao", False, "mul "), ("matid", False, "norm")],
+      "Photo match preset: photo, shadow, render, composite, ao (hidden, Multiply), matid; one layer per role")
 
 # --- unregister ----------------------------------------------------------------------
 

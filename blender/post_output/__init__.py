@@ -17,6 +17,14 @@ carries the shadows. Multiply on display values gives almost exactly the
 linear result, so the shadows look as in Blender; Normal blending on display
 values does not, which is why the shadows are not left in the render layer.
 
+Extra passes (#22) are post-production aids, ticked in the panel or set by a
+preset: mist and AO (written with the Raw view, stretched to black-white per
+image when read), light groups, reflection, refraction, emission, environment
+and albedo (scene view transform; light groups and light passes denoised in the
+compositor), and the view layer's own AOVs (Standard view, exact). Each becomes
+one hidden layer with its blend mode. A pass the PSD already has for another
+reason (render, shadow, photo, matid) never gets a second layer.
+
 The PSD is written when Blender writes the render (a render queue such as
 Photographer's, or a command-line render) and, with *Save F12 renders*, after
 F12: the render result is saved to the output path first. Render handlers run
@@ -40,11 +48,49 @@ from bpy.app.handlers import persistent
 from . import psd
 from ..material_id import AOV_NAME
 
-NODE_NAME = "odv_matid"       # File Output, Standard view, 16-bit RGB: matid, shadow
+NODE_NAME = "odv_matid"       # File Output, Standard view, 16-bit RGB: matid, shadow, aov_<name>
 LAYERS_NODE = "odv_layers"    # File Output, scene view transform, 16-bit RGBA: render, photo
+AIDS_NODE = "odv_aids"        # File Output, Raw view, 16-bit RGB: mist, ao (stretched when read)
+LIGHT_NODE = "odv_light"      # File Output, scene view transform, 16-bit RGB: light groups and passes
+OUTPUT_NODES = (NODE_NAME, LAYERS_NODE, AIDS_NODE, LIGHT_NODE)
 MULTIPLY_NODE = "odv_shadow_multiply"
+HELPER_PREFIXES = ("odv_mix_", "odv_dn_")   # Mix and Denoise nodes of the extra passes
 ITEM_NAME = "matid"
 ROLES = ("matid", "shadow", "render", "photo")   # file <beauty>_<role>.png
+ROLES_PROP = "odv_roles"      # on our File Output nodes: the roles of their items, in order
+
+# Extra passes (#22), all delivered as hidden layers. key: (label, tooltip)
+PASSES = {
+    "mist": ("Mist", "Cycles Mist pass (distance from the camera), greyscale, stretched to "
+                     "black-white per image. Screen layer"),
+    "ao": ("AO", "Ambient Occlusion pass, greyscale, stretched to black-white per image. Multiply layer"),
+    "lightgroups": ("Light groups", "One layer per light group of the view layer, scene view transform. "
+                                    "Linear Dodge (Add) layers"),
+    "reflection": ("Reflection", "Glossy direct + indirect, times glossy colour, scene view transform. "
+                                 "Linear Dodge (Add) layer"),
+    "refraction": ("Refraction", "Transmission direct + indirect, times transmission colour, scene view "
+                                 "transform. Linear Dodge (Add) layer"),
+    "emission": ("Emission", "Emission pass, scene view transform. Linear Dodge (Add) layer"),
+    "environment": ("Environment", "Environment pass (the world where it is seen directly), scene view "
+                                   "transform. Linear Dodge (Add) layer"),
+    "albedo": ("Albedo", "Diffuse Color pass, scene view transform. Normal layer"),
+    "aovs": ("Custom AOVs", "Every AOV of the view layer except the material ID, exact values "
+                            "(Standard view). Normal layers"),
+}
+# key: (label, tooltip, ticked passes)
+PRESETS = {
+    "MINIMAL": ("Minimal", "No extra passes: beauty and material ID (render, shadow and photo in a "
+                           "photo match)", ()),
+    "PHOTO": ("Photo match", "Minimal and AO. A photo match delivers the shadow catcher as its shadow "
+                             "layer already", ("ao",)),
+    "FULL": ("Full", "Every extra pass except environment and albedo",
+             ("mist", "ao", "lightgroups", "reflection", "refraction", "emission", "aovs")),
+}
+GREY_ROLES = ("mist", "ao")
+ADD_ROLES = ("reflection", "refraction", "emission", "environment")
+SIMPLE_SOURCES = {"mist": "Mist", "ao": "Ambient Occlusion", "emission": "Emission",
+                  "environment": "Environment", "albedo": "Diffuse Color"}
+LIGHT_SUMS = {"reflection": "Glossy", "refraction": "Transmission"}
 GEOMETRY = {'MESH', 'CURVE', 'SURFACE', 'META', 'FONT', 'CURVES', 'POINTCLOUD', 'VOLUME'}
 LAYERS_NODE_NAME = "odv Render Layers"
 POLL_S = 0.5
@@ -71,10 +117,37 @@ class ODV_PG_post_output(bpy.types.PropertyGroup):
         default=True,
         description="After an F12 render, save the beauty to the output path and write the PSD. "
                     "When off, use Image › Save Layered PSD in the Image Editor")
+    denoise: bpy.props.BoolProperty(
+        name="Denoise light passes",
+        default=True,
+        description="A compositor Denoise node for each light group and for reflection and "
+                    "refraction: Cycles denoises only the Combined pass")
+
+
+for _key, (_label, _tip) in PASSES.items():
+    ODV_PG_post_output.__annotations__["pass_" + _key] = bpy.props.BoolProperty(
+        name=_label, default=False, description=_tip)
 
 
 def settings(scene):
     return getattr(scene, "odv_post", None)
+
+
+def ticked(s):
+    """The extra passes ticked in the panel, in PASSES order."""
+    return [k for k in PASSES if s is not None and getattr(s, "pass_" + k, False)]
+
+
+def pass_roles(view_layer, s):
+    """{output node name: [roles]} of the ticked extra passes on this view layer."""
+    keys = ticked(s)
+    out = {NODE_NAME: [], AIDS_NODE: [k for k in GREY_ROLES if k in keys], LIGHT_NODE: []}
+    if "aovs" in keys:
+        out[NODE_NAME] = ["aov_" + a.name for a in view_layer.aovs if a.name != AOV_NAME]
+    if "lightgroups" in keys:
+        out[LIGHT_NODE] = ["light_" + lg.name for lg in view_layer.lightgroups]
+    out[LIGHT_NODE] += [k for k in ADD_ROLES + ("albedo",) if k in keys]
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -106,12 +179,19 @@ def id_node(scene):
     return n if n and n.bl_idname == "CompositorNodeOutputFile" else None
 
 
-def _role(item_name):
-    """matid, shadow, render or photo; a render queue may prefix the item names."""
-    for role in ROLES:
+def _role(item_name, names=ROLES):
+    """The role of a File Output item among `names`; a render queue may prefix the
+    item names. The longest match wins (light_key_sun before light_sun)."""
+    for role in sorted(names, key=len, reverse=True):
         if item_name == role or item_name.endswith("_" + role):
             return role
     return None
+
+
+def _node_roles(node):
+    """The roles of an output node's items, as set up; ROLES for a node set up by 0.0.5."""
+    names = node.get(ROLES_PROP)
+    return [str(n) for n in names] if names else list(ROLES)
 
 
 def item_files(scene):
@@ -121,17 +201,19 @@ def item_files(scene):
     g = scene.compositing_node_group
     if g is None or not scene.render.use_compositing:
         return out
-    for node_name in (NODE_NAME, LAYERS_NODE):
+    for node_name in OUTPUT_NODES:
         node = g.nodes.get(node_name)
         if node is None or node.bl_idname != "CompositorNodeOutputFile" or node.mute:
             continue
         directory = bpy.path.abspath(node.directory)
+        names = _node_roles(node)
         for i, item in enumerate(node.file_output_items):
-            role = _role(item.name)
+            role = _role(item.name, names)
             if role is None or not node.inputs[i].is_linked:
                 continue
             name = node.file_name + item.name
-            if node.use_file_extension and node.format.file_format == 'PNG':
+            # use_file_extension is new in Blender 5.2; 5.0 and 5.1 always add the extension.
+            if getattr(node, "use_file_extension", True) and node.format.file_format == 'PNG':
                 name += ".png"
             out[role] = os.path.normpath(os.path.join(directory, name))
     return out
@@ -265,6 +347,40 @@ def _stack(photo, shadow, render):
     return np.round(np.clip(out, 0, 1) * MAX).astype(np.uint16)
 
 
+def _stretch(img):
+    """A greyscale aid stretched to the full black-white range of this image, as RGB."""
+    v = img[..., 0]
+    lo, hi = int(v.min()), int(v.max())
+    if hi > lo:
+        v = np.round((v.astype(np.float64) - lo) * (MAX / (hi - lo))).astype(np.uint16)
+    return np.repeat(v[..., None], 3, -1)
+
+
+def _aid_spec(role):
+    """(rank, blend) of an extra pass in the PSD, bottom first; None for other roles."""
+    if role == "albedo":
+        return 0, b"norm"
+    if role.startswith("light_") or role in ADD_ROLES:
+        return 1, b"lddg"
+    if role == "ao":
+        return 2, b"mul "
+    if role == "mist":
+        return 3, b"scrn"
+    if role.startswith("aov_"):
+        return 4, b"norm"
+    return None
+
+
+def _aid_layers(px):
+    """Hidden layers of the extra passes, bottom first: albedo, light groups and light
+    passes (Add), AO (Multiply), mist (Screen), custom AOVs. Within a rank, in the
+    order of the File Output items."""
+    found = [(spec, role) for role in px if (spec := _aid_spec(role))]
+    found.sort(key=lambda t: t[0][0])
+    return [psd.Layer(role, _stretch(px[role]) if role in GREY_ROLES else px[role][..., :3],
+                      False, spec[1]) for spec, role in found]
+
+
 def _write(job):
     """Read the beauty and the pass files, write and check the PSD, tidy up. Any thread."""
     t = time.perf_counter()
@@ -295,6 +411,7 @@ def _write(job):
         else:
             layers = [psd.Layer("beauty", rgba, True, b"norm")]
             composite = psd.flatten_over_white(rgba)
+        layers += _aid_layers(px)
         if "matid" in px:
             layers.append(psd.Layer("matid", px["matid"][..., :3], False, b"norm"))
         else:
@@ -306,7 +423,9 @@ def _write(job):
         tmp = out + ".part"
         psd.write(tmp, layers, composite, icc=icc)
         summary = psd.read_summary(tmp)
-        expected = [(l.name, l.visible, l.blend.decode("ascii")) for l in layers]
+        # The Pascal name in the layer record is ASCII; the Unicode name is stored as well.
+        expected = [(l.name.encode("ascii", "replace")[:255].decode("ascii"), l.visible,
+                     l.blend.decode("ascii")) for l in layers]
         if summary["layers"] != expected or summary["depth"] != 16 \
                 or (summary["height"], summary["width"]) != rgba.shape[:2]:
             raise ValueError(f"read-back check failed: {summary}")
@@ -507,7 +626,7 @@ def _set_items(node, names):
     items = node.file_output_items
     removed = False
     for item in list(items):
-        role = _role(item.name)
+        role = _role(item.name, names)
         if role in names and item.name != role:
             item.name = role          # a queue that stopped half-way left its name on it
         elif role not in names:
@@ -521,6 +640,7 @@ def _set_items(node, names):
         current = [item.name for item in items].index(name)
         if current != target:
             items.move(current, target)
+    node[ROLES_PROP] = list(names)
     return removed
 
 
@@ -540,13 +660,14 @@ def _file_output(g, name, label, location):
     return node
 
 
-def _standard_view(node, scene):
-    """Write values as they are, without the scene's look: exact ID colours, a shadow
-    factor that multiplies correctly on display values."""
+def _standard_view(node, scene, view='Standard'):
+    """Write values without the scene's look. Standard: exact ID colours, a shadow
+    factor that multiplies correctly on display values. Raw: linear values, for the
+    greyscale aids that are stretched after reading."""
     node.format.color_management = 'OVERRIDE'
     node.format.display_settings.display_device = scene.display_settings.display_device
     vs = node.format.view_settings
-    vs.view_transform = 'Standard'
+    vs.view_transform = view
     vs.look = 'None'
     vs.exposure = 0.0
     vs.gamma = 1.0
@@ -569,6 +690,141 @@ def _shadow_multiply(g, ao, rl, photo):
     g.links.new(photo, _socket(m.inputs, "A_Color"))
     g.links.new(rl.outputs["Shadow Catcher"], _socket(m.inputs, "B_Color"))
     g.links.new(_socket(m.outputs, "Result_Color"), ao.inputs["Background"])
+
+
+def _helper(g, name, idname, keep, location):
+    """A Mix or Denoise node of the extra passes, created once and marked as in use."""
+    n = g.nodes.get(name)
+    if n is not None and n.bl_idname != idname:
+        g.nodes.remove(n)
+        n = None
+    if n is None:
+        n = g.nodes.new(idname)
+        n.name = name
+        n.location = location
+    keep.add(name)
+    return n
+
+
+def _mix(g, name, blend, a, b, keep, location):
+    m = _helper(g, name, "ShaderNodeMix", keep, location)
+    m.data_type = 'RGBA'
+    m.blend_type = blend
+    m.clamp_result = False
+    _socket(m.inputs, "Factor_Float").default_value = 1.0
+    g.links.new(a, _socket(m.inputs, "A_Color"))
+    g.links.new(b, _socket(m.inputs, "B_Color"))
+    return _socket(m.outputs, "Result_Color")
+
+
+def _enable_cycles_passes(view_layer, keys):
+    vl = view_layer
+    if "mist" in keys:
+        vl.use_pass_mist = True
+    if "ao" in keys:
+        vl.use_pass_ambient_occlusion = True
+    if "reflection" in keys:
+        vl.use_pass_glossy_direct = vl.use_pass_glossy_indirect = vl.use_pass_glossy_color = True
+    if "refraction" in keys:
+        vl.use_pass_transmission_direct = vl.use_pass_transmission_indirect = True
+        vl.use_pass_transmission_color = True
+    if "emission" in keys:
+        vl.use_pass_emit = True
+    if "environment" in keys:
+        vl.use_pass_environment = True
+    if "albedo" in keys:
+        vl.use_pass_diffuse_color = True
+
+
+# Render Layers output names as in Blender 5.3, and the short pass names that
+# other Blender versions may use for the same output.
+SHORT_NAMES = {"Ambient Occlusion": "AO", "Diffuse Color": "DiffCol", "Emission": "Emit",
+               "Environment": "Env", "Glossy Direct": "GlossDir", "Glossy Indirect": "GlossInd",
+               "Glossy Color": "GlossCol", "Transmission Direct": "TransDir",
+               "Transmission Indirect": "TransInd", "Transmission Color": "TransCol"}
+
+
+def _output(rl, name):
+    """A Render Layers output by its 5.3 name or its short pass name."""
+    for n in (name, SHORT_NAMES.get(name)):
+        if n and n in rl.outputs:
+            return rl.outputs[n]
+    raise KeyError(f"the Render Layers node has no output {name!r}")
+
+
+def _pass_socket(g, rl, role, keep, location):
+    """The compositor socket that carries an extra pass."""
+    if role in SIMPLE_SOURCES:
+        return _output(rl, SIMPLE_SOURCES[role])
+    if role.startswith("light_"):
+        return _output(rl, "Combined_" + role[len("light_"):])
+    if role.startswith("aov_"):
+        return _output(rl, role[len("aov_"):])
+    base = LIGHT_SUMS[role]       # (direct + indirect) x colour, as Cycles composes it
+    x, y = location
+    s = _mix(g, f"odv_mix_{role}_add", 'ADD', _output(rl, base + " Direct"),
+             _output(rl, base + " Indirect"), keep, (x, y))
+    return _mix(g, f"odv_mix_{role}_colour", 'MULTIPLY', s, _output(rl, base + " Color"),
+                keep, (x + 180, y))
+
+
+def _setup_passes(g, scene, view_layer, rl, fo, roles, directory, denoise):
+    """File Output nodes, Mix and Denoise nodes and Cycles passes for the ticked extra
+    passes; removes those no longer ticked. Returns True if a File Output item or
+    node was removed."""
+    _enable_cycles_passes(view_layer, ticked(settings(scene)))
+    removed, keep = False, set()
+    x, y = rl.location.x + 300, rl.location.y - 300
+    for node_name, label, view in ((AIDS_NODE, "Mist and AO files (odv)", 'Raw'),
+                                   (LIGHT_NODE, "Light pass files (odv)", None)):
+        names = roles[node_name]
+        node = g.nodes.get(node_name)
+        if not names:
+            if node is not None:
+                g.nodes.remove(node)
+                removed = True
+            continue
+        node = _file_output(g, node_name, label, (x + 600, y))
+        node.directory = directory
+        node.format.color_mode = 'RGB'
+        if view:
+            _standard_view(node, scene, view)
+        else:
+            node.format.color_management = 'FOLLOW_SCENE'
+            node.save_as_render = True
+        if _set_items(node, names):
+            removed = True
+        for role in names:
+            sock = _pass_socket(g, rl, role, keep, (x, y))
+            if denoise and (role.startswith("light_") or role in LIGHT_SUMS):
+                dn = _helper(g, "odv_dn_" + role, "CompositorNodeDenoise", keep, (x + 380, y))
+                dn.label = f"Denoise {role} (odv)"
+                if "HDR" in dn.inputs:
+                    dn.inputs["HDR"].default_value = True
+                g.links.new(sock, dn.inputs["Image"])
+                sock = dn.outputs["Image"]
+            g.links.new(sock, node.inputs[role])
+            y -= 160
+    for role in roles[NODE_NAME]:
+        g.links.new(_pass_socket(g, rl, role, keep, (x, y)), fo.inputs[role])
+    for n in list(g.nodes):
+        if n.name.startswith(HELPER_PREFIXES) and n.name not in keep:
+            g.nodes.remove(n)
+    return removed
+
+
+def _passes_note(view_layer, s, roles):
+    """The extra passes for the set-up message."""
+    keys = ticked(s)
+    if not keys:
+        return ""
+    names = [r for rs in roles.values() for r in rs]
+    note = f". Extra passes as hidden layers: {', '.join(names) or 'none'}"
+    if "lightgroups" in keys and not view_layer.lightgroups:
+        note += ". Light groups ticked, but the view layer has none"
+    if "aovs" in keys and not roles[NODE_NAME]:
+        note += ". Custom AOVs ticked, but the view layer has none besides the material ID"
+    return note
 
 
 def setup(scene, view_layer):
@@ -609,8 +865,13 @@ def setup(scene, view_layer):
         # Lights report is_shadow_catcher = True in Blender 5.3; only rendered geometry counts.
         o.type in GEOMETRY and not o.hide_render and getattr(o, "is_shadow_catcher", False)
         for o in scene.objects)
-    removed = _set_items(fo, [ITEM_NAME, "shadow"] if catchers else [ITEM_NAME])
+    s = settings(scene)
+    roles = pass_roles(view_layer, s)
+    removed = _set_items(fo, [ITEM_NAME] + (["shadow"] if catchers else []) + roles[NODE_NAME])
     g.links.new(rl.outputs[AOV_NAME], fo.inputs[ITEM_NAME])
+    if _setup_passes(g, scene, view_layer, rl, fo, roles, directory, s.denoise):
+        removed = True
+    passes = _passes_note(view_layer, s, roles)
 
     if pm is None:
         old = g.nodes.get(LAYERS_NODE)
@@ -620,7 +881,7 @@ def setup(scene, view_layer):
         if removed:
             _forget_queue_items()
         return ('INFO', "Post-production output set up: 16-bit PNG beauty, material ID file "
-                        "and layered PSD")
+                        "and layered PSD" + passes)
 
     ao, rl_fg, photo = pm
     lo = _file_output(g, LAYERS_NODE, "Render and photo files (odv)", (ao.location.x, ao.location.y - 300))
@@ -647,14 +908,14 @@ def setup(scene, view_layer):
         return ('WARNING' if view_note else 'INFO',
                 "Post-production output set up for a photo match: render, shadow (Multiply) "
                 "and photo as separate PSD layers. The Shadow Catcher pass is on and the photo "
-                "is multiplied by it in the compositor" + view_note)
+                "is multiplied by it in the compositor" + view_note + passes)
     m = g.nodes.get(MULTIPLY_NODE)
     if m is not None:
         g.links.new(photo, ao.inputs["Background"])
         g.nodes.remove(m)
     return ('WARNING' if view_note else 'INFO',
             "Post-production output set up for a photo match: render and photo as separate "
-            "PSD layers (no shadow catcher objects)" + view_note)
+            "PSD layers (no shadow catcher objects)" + view_note + passes)
 
 
 def status_lines(scene, view_layer):
@@ -673,7 +934,30 @@ def status_lines(scene, view_layer):
          else "No material ID AOV: Assign material IDs"),
         (node is not None and not node.mute, "ID File Output node" if node else "No ID File Output node"),
         (r.use_compositing, "Compositing on" if r.use_compositing else "Compositing off: no ID file"),
-    ] + _photo_lines(scene)
+    ] + _photo_lines(scene) + _pass_lines(scene, view_layer)
+
+
+def _pass_lines(scene, view_layer):
+    """Whether the File Output nodes carry the ticked extra passes, no more and no less."""
+    s = settings(scene)
+    want = {r for rs in pass_roles(view_layer, s).values() for r in rs}
+    have = set()
+    g = scene.compositing_node_group
+    for name in (NODE_NAME, AIDS_NODE, LIGHT_NODE):
+        node = g.nodes.get(name) if g else None
+        if node is not None and node.bl_idname == "CompositorNodeOutputFile":
+            names = _node_roles(node)
+            have |= {_role(i.name, names) for i in node.file_output_items}
+    have -= {None, ITEM_NAME, "shadow"}
+    if not want and not have:
+        return []
+    if want == have:
+        return [(True, f"Extra passes: {len(want)}")]
+    missing, extra = sorted(want - have), sorted(have - want)
+    text = "Run Set up output: " + "; ".join(
+        p for p in (missing and "not set up: " + ", ".join(missing),
+                    extra and "no longer ticked: " + ", ".join(extra)) if p)
+    return [(False, text)]
 
 
 def _photo_image(socket, depth=0):
@@ -714,6 +998,29 @@ class ODV_OT_post_setup(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
+        level, message = setup(context.scene, context.view_layer)
+        self.report({level}, message)
+        return {'FINISHED'}
+
+
+class ODV_OT_post_preset(bpy.types.Operator):
+    bl_idname = "odv.post_preset"
+    bl_label = "Pass preset"
+    bl_description = "Tick the extra passes of a preset and run Set up output"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    preset: bpy.props.EnumProperty(
+        items=[(k, v[0], v[1]) for k, v in PRESETS.items()], default='MINIMAL')
+
+    @classmethod
+    def description(cls, context, properties):
+        return PRESETS[properties.preset][1] + ". Runs Set up output"
+
+    def execute(self, context):
+        s = settings(context.scene)
+        on = PRESETS[self.preset][2]
+        for k in PASSES:
+            setattr(s, "pass_" + k, k in on)
         level, message = setup(context.scene, context.view_layer)
         self.report({level}, message)
         return {'FINISHED'}
@@ -777,13 +1084,52 @@ class ODV_PT_post_output(bpy.types.Panel):
             layout.label(text=_last["status"], icon='INFO')
 
 
+class ODV_PT_post_passes(bpy.types.Panel):
+    bl_label = "Extra passes"
+    bl_parent_id = "ODV_PT_post_output"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "odv"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        s = settings(context.scene)
+        world = context.scene.world
+        row = layout.row(align=True)
+        for key, (label, _tip, _on) in PRESETS.items():
+            row.operator(ODV_OT_post_preset.bl_idname, text=label).preset = key
+        layout.label(text="Ticks take effect with Set up output")
+
+        col = layout.column(align=True)
+        col.label(text="Greyscale, stretched per image")
+        col.prop(s, "pass_mist")
+        if s.pass_mist and world:
+            sub = col.row(align=True)
+            sub.prop(world.mist_settings, "start")
+            sub.prop(world.mist_settings, "depth")
+        col.prop(s, "pass_ao")
+        if s.pass_ao and world:
+            col.prop(world.light_settings, "distance", text="AO distance")
+
+        col = layout.column(align=True)
+        col.label(text="Colour, scene view transform")
+        for k in ("lightgroups", "reflection", "refraction", "emission", "environment", "albedo"):
+            col.prop(s, "pass_" + k)
+        col.prop(s, "denoise")
+
+        col = layout.column(align=True)
+        col.label(text="Exact values")
+        col.prop(s, "pass_aovs")
+
+
 def _image_menu(self, context):
     self.layout.separator()
     self.layout.operator(ODV_OT_post_save_render.bl_idname, icon='RENDERLAYERS')
 
 
-classes = (ODV_PG_post_output, ODV_OT_post_setup, ODV_OT_post_save_render,
-           ODV_OT_post_report, ODV_PT_post_output)
+classes = (ODV_PG_post_output, ODV_OT_post_setup, ODV_OT_post_preset, ODV_OT_post_save_render,
+           ODV_OT_post_report, ODV_PT_post_output, ODV_PT_post_passes)
 
 _handlers = (("render_pre", _on_render_pre), ("render_write", _on_render_write),
              ("render_complete", _on_render_complete), ("render_cancel", _on_render_cancel))
