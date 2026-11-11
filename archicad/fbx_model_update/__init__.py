@@ -5,6 +5,9 @@ pass indices, modifiers and custom properties of existing objects.
 """
 
 import re
+from math import radians
+
+import bmesh
 import bpy
 from mathutils import Matrix
 
@@ -166,6 +169,53 @@ def bucket_by_material(objects, temp_col):
 
 
 # ---------------------------------------------------------------------------
+# optional geometry clean-up (#10)
+# ---------------------------------------------------------------------------
+
+def merge_by_distance(mesh, distance):
+    """Weld vertices closer than `distance`, then remove what that degenerates.
+
+    The FBX arrives with every triangle on its own vertices; welding makes the
+    surfaces connected. Corner data (UVs, imported normals) is kept per corner.
+    """
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=distance)
+    # collapses edges shorter than `distance` and faces without area
+    bmesh.ops.dissolve_degenerate(bm, dist=distance, edges=bm.edges)
+    loose = [v for v in bm.verts if not v.link_faces]
+    if loose:
+        bmesh.ops.delete(bm, geom=loose, context='VERTS')
+    bm.to_mesh(mesh)
+    bm.free()
+
+
+def smooth_by_angle(mesh, angle):
+    """Shade smooth, sharp where neighbouring faces meet at more than `angle`.
+
+    The FBX importer stores the exported normals as custom normals, which
+    override smooth and sharp shading, so they are removed first. Stored in the
+    mesh, not as a modifier, so it does not stack with modifiers on the object.
+    """
+    if mesh.has_custom_normals:
+        attr = mesh.attributes.get("custom_normal")
+        if attr is not None:
+            mesh.attributes.remove(attr)
+    mesh.shade_smooth()
+    mesh.set_sharp_from_angle(angle=angle)
+
+
+def clean_up(objects, scene):
+    if not (scene.ac_merge_by_distance or scene.ac_smooth_by_angle):
+        return
+    for obj in objects:
+        if scene.ac_merge_by_distance:
+            merge_by_distance(obj.data, scene.ac_merge_distance)
+        if scene.ac_smooth_by_angle:
+            smooth_by_angle(obj.data, scene.ac_smooth_angle)
+
+
+# ---------------------------------------------------------------------------
 # update steps
 # ---------------------------------------------------------------------------
 
@@ -236,6 +286,7 @@ class ODV_OT_ac_update_from_fbx(bpy.types.Operator):
 
         dedupe_materials(imported)
         incoming = bucket_by_material(imported, temp)
+        clean_up(incoming.values(), s)
 
         existing = {o.name: o for o in target.objects if o.type == 'MESH'}
 
@@ -305,6 +356,19 @@ class ODV_PT_ac_fbx_updater(bpy.types.Panel):
         box.prop(s, "ac_clear_missing")
         box.prop(s, "ac_autoindex")
 
+        box = layout.box()
+        box.label(text="Clean-up")
+        row = box.row(heading="Merge by distance")
+        row.prop(s, "ac_merge_by_distance", text="")
+        sub = row.row()
+        sub.active = s.ac_merge_by_distance
+        sub.prop(s, "ac_merge_distance", text="")
+        row = box.row(heading="Smooth by angle")
+        row.prop(s, "ac_smooth_by_angle", text="")
+        sub = row.row()
+        sub.active = s.ac_smooth_by_angle
+        sub.prop(s, "ac_smooth_angle", text="")
+
         col = layout.column()
         col.operator("odv.ac_update_from_fbx", icon='FILE_REFRESH')
         col.operator("odv.ac_reindex", icon='MATERIAL')
@@ -352,6 +416,22 @@ def register():
     bpy.types.Scene.ac_autoindex = bpy.props.BoolProperty(
         name="Auto pass index for new", default=True,
         description="Give each new object the lowest pass index not yet used in the target collection")
+    bpy.types.Scene.ac_merge_by_distance = bpy.props.BoolProperty(
+        name="Merge by distance", default=False,
+        description=("Weld vertices closer than the distance and remove faces without area, "
+                     "so each surface is connected instead of separate triangles"))
+    bpy.types.Scene.ac_merge_distance = bpy.props.FloatProperty(
+        name="Distance", default=0.0001, min=0.0, soft_max=0.01, precision=5,
+        subtype='DISTANCE', unit='LENGTH',
+        description="Vertices closer than this are welded")
+    bpy.types.Scene.ac_smooth_by_angle = bpy.props.BoolProperty(
+        name="Smooth by angle", default=False,
+        description=("Shade smooth, sharp where faces meet at more than the angle. "
+                     "Replaces the normals from the FBX; works on welded surfaces, so use it with Merge by distance"))
+    bpy.types.Scene.ac_smooth_angle = bpy.props.FloatProperty(
+        name="Angle", default=radians(30.0), min=0.0, max=radians(180.0),
+        subtype='ANGLE',
+        description="Edges between faces meeting at more than this angle stay sharp")
     for c in classes:
         bpy.utils.register_class(c)
 
@@ -364,4 +444,8 @@ def unregister():
     del bpy.types.Scene.ac_temp_collection
     del bpy.types.Scene.ac_clear_missing
     del bpy.types.Scene.ac_autoindex
+    del bpy.types.Scene.ac_merge_by_distance
+    del bpy.types.Scene.ac_merge_distance
+    del bpy.types.Scene.ac_smooth_by_angle
+    del bpy.types.Scene.ac_smooth_angle
 

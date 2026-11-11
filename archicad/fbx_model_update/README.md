@@ -29,6 +29,8 @@ Their settings are not needed: materials are set up in Blender.
 | **Temp** | A working collection for the import, `__TEMP_FBX__` by default. It is emptied after each update; don't render it. |
 | **Clear missing objects** | Empty the geometry of objects that are no longer in the FBX. The objects themselves are kept. When off, they are left as they are. |
 | **Auto pass index for new** | Give each new object the lowest pass index not yet used in the target collection. |
+| **Merge by distance** | Weld vertices closer than the distance (0.1 mm by default) and remove faces without area. Off by default. |
+| **Smooth by angle** | Shade smooth, with edges sharp where faces meet at more than the angle (30° by default). Off by default. |
 
 *Target* and *Temp* are in the *Collections* sub-panel, closed by default.
 *Update model from FBX* stays greyed out until an FBX file is selected.
@@ -40,6 +42,12 @@ Then it compares these with the objects in the target collection by name:
 - **in the scene and in the FBX:** the geometry is replaced inside the existing object, so its materials, pass index, modifiers and custom properties stay;
 - **new in the FBX:** the object is added to the target collection;
 - **no longer in the FBX:** the object is emptied, if *Clear missing objects* is on.
+
+The FBX arrives with every triangle on its own vertices.
+The two *Clean-up* options work on each surface object after the split, before the matching, so they don't change which objects are matched:
+
+- **Merge by distance** makes each surface one connected mesh. Modifiers that need connected geometry, such as Bevel, then work: on the separate triangles a Bevel modifier has no effect. UVs and the normals from the FBX are kept, so the shading does not change.
+- **Smooth by angle** replaces the normals from the FBX with smooth shading and sharp edges, stored in the mesh rather than as a modifier. It only has an effect on welded geometry, so use it together with *Merge by distance*. On curved surfaces, check that the result looks better than the FBX normals.
 
 Materials that arrive as duplicates (`Wood.001`) are pointed at the existing material (`Wood`), and unused duplicates are removed.
 The result is shown in the status bar, and the matched, new and missing names are printed to the system console.
@@ -53,3 +61,4 @@ Pass indices are what the *Object Index* and *Material Index* passes use for mas
 
 - Custom UV maps are lost on update, because the geometry is replaced. Use procedural texture mapping.
 - Object transforms are applied: the geometry sits in world coordinates and every object's transform is reset.
+- *Merge by distance* also welds separate elements of the same surface where they touch. Where two elements share a face (a block standing on a block of the same surface), the hidden contact faces stay inside the mesh and the edges around them become non-manifold, which can trouble Bevel and smooth shading at that joint.
