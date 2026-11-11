@@ -44,6 +44,7 @@ import traceback
 import bpy
 import numpy as np
 from bpy.app.handlers import persistent
+from bpy_extras.io_utils import ExportHelper
 
 from . import psd
 from ..material_id import AOV_NAME
@@ -116,7 +117,7 @@ class ODV_PG_post_output(bpy.types.PropertyGroup):
         name="Save F12 renders",
         default=True,
         description="After an F12 render, save the beauty to the output path and write the PSD. "
-                    "When off, use Image › Save Layered PSD in the Image Editor")
+                    "When off, use Image › Save Layered PSD... in the Image Editor")
     denoise: bpy.props.BoolProperty(
         name="Denoise light passes",
         default=True,
@@ -447,14 +448,21 @@ def _write(job):
         return
 
     # Tidy up the separate files. The File Output nodes may write to another
-    # drive than the beauty, so move with shutil (copies when it has to).
+    # drive than the beauty, so move with shutil (copies when it has to). Once
+    # they sit next to a PSD, a later save of the same render (Save Layered PSD
+    # to another name) copies them, so that the first PSD keeps its files.
     try:
         if job["keep"]:
             for role, path in used.items():
                 target = f"{stem}_{role}.png"
-                if os.path.normcase(path) != os.path.normcase(target):
+                if os.path.normcase(path) == os.path.normcase(target):
+                    continue
+                if job.get("tidied"):
+                    shutil.copy2(path, target)
+                else:
                     shutil.move(path, target)
                     job["items"][role] = target
+            job["tidied"] = True
         else:
             os.remove(beauty)
             for path in used.values():
@@ -1026,20 +1034,39 @@ class ODV_OT_post_preset(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class ODV_OT_post_save_render(bpy.types.Operator):
+class ODV_OT_post_save_render(bpy.types.Operator, ExportHelper):
     bl_idname = "odv.post_save_render"
     bl_label = "Save Layered PSD"
-    bl_description = ("Save the last F12 render to the scene's output path and write the layered PSD "
-                      "with the material ID next to it")
+    bl_description = ("Save the last render as a layered PSD with the material ID, choosing where; "
+                      "the beauty and the separate pass files are saved next to it")
+
+    filename_ext = ".psd"
+    filter_glob: bpy.props.StringProperty(default="*.psd", options={'HIDDEN'})
 
     @classmethod
     def poll(cls, context):
         job = _last["job"]
         return job is not None and bpy.data.images.get("Render Result") is not None
 
+    def invoke(self, context, event):
+        # Start from this render's name: the output path, or where it was saved last.
+        # Set every time: the browser would otherwise offer the previous render's name.
+        job = _last["job"]
+        path = bpy.path.abspath(job.get("beauty_file") or job["beauty"][0])
+        if path.startswith("//"):   # relative output path, .blend not saved: name only
+            path = os.path.basename(path)
+        self.filepath = os.path.splitext(path)[0] + self.filename_ext
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
     def execute(self, context):
         job = dict(_last["job"])
         job["written"] = False
+        if self.filepath:
+            # The beauty goes next to the PSD under the same name, with its own extension.
+            ext = os.path.splitext(job["beauty"][0])[1] or ".png"
+            stem = os.path.splitext(bpy.path.abspath(self.filepath))[0]
+            job["beauty"] = [os.path.normpath(stem + ext)]
         if start(job, save=True):
             self.report({'INFO'}, f"Saved {os.path.basename(job['beauty_file'])}; writing the PSD")
             return {'FINISHED'}
@@ -1125,7 +1152,8 @@ class ODV_PT_post_passes(bpy.types.Panel):
 
 def _image_menu(self, context):
     self.layout.separator()
-    self.layout.operator(ODV_OT_post_save_render.bl_idname, icon='RENDERLAYERS')
+    self.layout.operator(ODV_OT_post_save_render.bl_idname, text="Save Layered PSD...",
+                         icon='RENDERLAYERS')
 
 
 classes = (ODV_PG_post_output, ODV_OT_post_setup, ODV_OT_post_preset, ODV_OT_post_save_render,

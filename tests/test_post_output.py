@@ -293,6 +293,14 @@ check(not os.path.exists(stem + ".png") and not os.path.exists(stem + ".psd"),
 check(bpy.ops.odv.post_save_render() == {'FINISHED'} and os.path.exists(stem + ".psd")
       and po.psd.read_summary(stem + ".psd")["layers"] == [("beauty", True, "norm"), ("matid", False, "norm")],
       "Image Editor operator: beauty and PSD saved afterwards")
+other = os.path.join(OUT, "chosen", "picked.psd")
+check(bpy.ops.odv.post_save_render(filepath=other) == {'FINISHED'} and os.path.exists(other)
+      and os.path.exists(os.path.join(OUT, "chosen", "picked.png"))
+      and os.path.exists(os.path.join(OUT, "chosen", "picked_matid.png"))
+      and po.psd.read_summary(other)["layers"] == [("beauty", True, "norm"), ("matid", False, "norm")],
+      "Image Editor operator with a chosen file: PSD, beauty and ID file at the chosen name")
+check(os.path.exists(stem + "_matid.png"),
+      "second save copies the ID file: the first PSD keeps its separate files")
 
 # --- extra passes (#22) ------------------------------------------------------------------
 

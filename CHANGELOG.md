@@ -5,6 +5,10 @@ Versions follow semantic versioning; tags are `vX.Y.Z` on `main` (see `docs/RELE
 
 ## Unreleased
 
+### Changed
+
+- Post-production output: *Image › Save Layered PSD...* opens a file browser to choose where the PSD goes, offering the render's output name; the beauty and the separate pass files are saved next to it. Saving the same render again under another name copies the pass files instead of moving them away from the first PSD.
+
 ## 0.0.6 (2026-11-11)
 
 ### Added
