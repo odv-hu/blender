@@ -5,6 +5,8 @@ Versions follow semantic versioning; tags are `vX.Y.Z` on `main` (see `docs/RELE
 
 ## Unreleased
 
+## 0.0.5 (2026-11-11)
+
 ### Added
 
 - Post-production output (#20, #21), on the *odv* tab: *Set up output* sets the scene to a 16-bit PNG beauty with alpha (view transform applied) and adds a File Output node that writes the Material ID with exact colours. After each render, a layered 16-bit PSD is written next to the beauty: `matid` (hidden) above `beauty` (alpha as transparency). Works with Photographer's render queue, command-line renders and F12 (*Save F12 renders*), and from the Image Editor (*Image › Save Layered PSD*). *Keep separate files* off leaves only the PSD. In a photo-match scene (render laid over a photo with *Alpha Over*), the PSD has the render, the Shadow Catcher pass (Multiply) and the photo as separate layers, and Blender's own result as a hidden `composite` layer; *Set up* switches the Shadow Catcher pass on and multiplies the photo by it in the compositor.
