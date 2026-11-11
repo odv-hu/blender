@@ -5,6 +5,8 @@ Versions follow semantic versioning; tags are `vX.Y.Z` on `main` (see `docs/RELE
 
 ## Unreleased
 
+## 0.0.4 (2026-11-11)
+
 ### Added
 
 - Material ID (#19), on the *odv* tab: gives every material a fixed flat colour, derived from its name and stored on the material, and writes it to the AOV `odv_matid`, enabled on the view layers of the active or all scenes. The beauty render does not change. *Re-roll* gives the active material a new colour; *Remove material IDs* takes the nodes and the AOV out again.
