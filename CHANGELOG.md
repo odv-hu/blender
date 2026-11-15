@@ -5,6 +5,13 @@ Versions follow semantic versioning; tags are `vX.Y.Z` on `main` (see `docs/RELE
 
 ## Unreleased
 
+## 0.0.7 (2026-11-15)
+
+### Fixed
+
+- Archicad FBX Updater: an update added a new copy of every surface whose name was taken elsewhere in the file (for example by an older copy of the model in another collection) and emptied the object holding the Blender materials; each further update added another copy (#37). Objects are now matched by the surface stored on them (`odv_surface`), not by their name. Objects left over from this, in the same target collection, are matched again and the empty copies left alone. The update warns when new surfaces already have objects outside the target collection, and the panel warns while the target collection is missing.
+- Archicad FBX Updater: faces assigned to another material slot in Blender went back to the first slot on every update; they now keep their slot while they don't move. An object emptied because its surface was missing kept no materials, so the returning surface came back without any; it now keeps them (#38).
+
 ### Changed
 
 - Post-production output: *Image › Save Layered PSD...* opens a file browser to choose where the PSD goes, offering the render's output name; the beauty and the separate pass files are saved next to it. Saving the same render again under another name copies the pass files instead of moving them away from the first PSD.
