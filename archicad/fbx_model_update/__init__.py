@@ -2,6 +2,8 @@
 
 Groups the import by surface (material) and keeps the Blender-side materials,
 pass indices, modifiers and custom properties of existing objects.
+Objects are matched by the surface they stand for, stored on the object, not by
+their name, which Blender suffixes when the name is taken elsewhere (#37).
 """
 
 import re
@@ -10,9 +12,17 @@ from math import radians
 import bmesh
 import bpy
 from mathutils import Matrix
+from mathutils.bvhtree import BVHTree
 
 
 DUP_SUFFIX = re.compile(r"^(.*)\.(\d{3})$")
+
+# Custom property on each object the updater manages: the Archicad surface it stands for.
+SURFACE_KEY = "odv_surface"
+
+# A new face whose centre lies this close (scene units, metres) to an old face
+# facing the same way keeps that face's material slot (#38).
+FACE_MATCH_DISTANCE = 0.001
 
 
 # ---------------------------------------------------------------------------
@@ -23,6 +33,18 @@ def canonical(name):
     """Felulet-feher.001 -> Felulet-feher"""
     m = DUP_SUFFIX.match(name)
     return m.group(1) if m else name
+
+
+def surface_of(obj):
+    """The surface an object stands for.
+
+    The stored surface name if the updater has set it, else the object's name
+    without a .001 suffix (objects from earlier versions).
+    """
+    value = obj.get(SURFACE_KEY)
+    if isinstance(value, str) and value:
+        return value
+    return canonical(obj.name)
 
 
 def get_or_create_collection(name, parent=None):
@@ -219,10 +241,46 @@ def clean_up(objects, scene):
 # update steps
 # ---------------------------------------------------------------------------
 
+def face_slots_from(old_mesh, old_matrix, new_mesh, n_slots):
+    """Material slot for each face of `new_mesh`, taken from the old face it lies on.
+
+    Keeps faces assigned to another slot in Blender (#38). A new face whose
+    centre lies on an old face (within FACE_MATCH_DISTANCE, facing the same way)
+    gets that face's slot; new or moved faces get slot 0. Returns None when there
+    is nothing to carry over (one slot, or every old face in slot 0).
+    """
+    if n_slots < 2 or old_mesh is None or not len(old_mesh.polygons):
+        return None
+    old_slots = [0] * len(old_mesh.polygons)
+    old_mesh.polygons.foreach_get("material_index", old_slots)
+    if not any(old_slots):
+        return None
+
+    verts = [old_matrix @ v.co for v in old_mesh.vertices]
+    tree = BVHTree.FromPolygons(verts, [tuple(p.vertices) for p in old_mesh.polygons])
+    slots = []
+    for poly in new_mesh.polygons:
+        best, best_dist = 0, None
+        for _loc, normal, index, dist in tree.find_nearest_range(poly.center, FACE_MATCH_DISTANCE):
+            if index is None or normal.dot(poly.normal) < 0.99:
+                continue
+            if best_dist is None or dist < best_dist:
+                best, best_dist = old_slots[index], dist
+        slots.append(best if best < n_slots else 0)
+    return slots
+
+
 def swap_geometry(existing, incoming):
-    """Keep the object shell -- pass_index, modifiers, custom props all survive."""
+    """Keep the object shell -- pass_index, modifiers, custom props all survive.
+
+    Returns the number of faces carried over to a slot other than the first.
+    """
     old_mesh = existing.data
     kept = [s.material for s in existing.material_slots]
+    if not kept:
+        # an object emptied by an earlier version lost its slots: take the FBX's
+        kept = list(incoming.data.materials)
+    slots = face_slots_from(old_mesh, existing.matrix_world.copy(), incoming.data, len(kept))
 
     existing.data = incoming.data
     existing.matrix_world = Matrix.Identity(4)
@@ -230,17 +288,52 @@ def swap_geometry(existing, incoming):
     existing.data.materials.clear()
     for mat in kept:
         existing.data.materials.append(mat)
+    if slots is not None:
+        existing.data.polygons.foreach_set("material_index", slots)
+        existing.data.update()
 
     bpy.data.objects.remove(incoming, do_unlink=True)
     if old_mesh and old_mesh.users == 0:
         bpy.data.meshes.remove(old_mesh)
+    return sum(1 for i in slots if i) if slots else 0
 
 
 def clear_geometry(obj):
+    """Empty the object, keeping its material slots for when the surface returns (#38)."""
     old = obj.data
-    obj.data = bpy.data.meshes.new(f"{obj.name}_EMPTY")
+    if old is not None and not len(old.polygons):
+        return  # already empty
+    empty = bpy.data.meshes.new(f"{obj.name}_EMPTY")
+    for mat in (old.materials if old is not None else []):
+        empty.materials.append(mat)
+    obj.data = empty
     if old and old.users == 0:
         bpy.data.meshes.remove(old)
+
+
+def rank_for_surface(obj, surface):
+    """Sort key: which of several objects standing for one surface gets updated."""
+    return (
+        obj.get(SURFACE_KEY) != surface,     # set by the updater
+        not (obj.data and len(obj.data.polygons)),  # has geometry
+        obj.name != surface,                 # carries the plain name
+        -(len(obj.data.polygons) if obj.data else 0),
+        obj.name,
+    )
+
+
+def objects_by_surface(objects):
+    """{surface: object to update}, plus the other objects standing for the same surface."""
+    groups = {}
+    for obj in objects:
+        if obj.type == 'MESH':
+            groups.setdefault(surface_of(obj), []).append(obj)
+    primary, duplicates = {}, []
+    for surface, objs in groups.items():
+        objs.sort(key=lambda o: rank_for_surface(o, surface))
+        primary[surface] = objs[0]
+        duplicates.extend(objs[1:])
+    return primary, duplicates
 
 
 def next_free_pass_index(collection):
@@ -249,6 +342,20 @@ def next_free_pass_index(collection):
     while i in used:
         i += 1
     return i
+
+
+def surfaces_outside(surfaces, target, temp):
+    """{surface: collection name} for the given surfaces that have objects outside
+    the target and temp collections, anywhere in the file (#37)."""
+    skip = set(target.objects) | set(temp.objects)
+    found = {}
+    for obj in bpy.data.objects:
+        if obj.type != 'MESH' or obj in skip or not obj.users_collection:
+            continue
+        surface = surface_of(obj)
+        if surface in surfaces:
+            found.setdefault(surface, obj.users_collection[0].name)
+    return found
 
 
 # ---------------------------------------------------------------------------
@@ -276,6 +383,7 @@ class ODV_OT_ac_update_from_fbx(bpy.types.Operator):
             self.report({'ERROR'}, "No FBX file selected")
             return {'CANCELLED'}
 
+        target_created = bpy.data.collections.get(s.ac_target_collection) is None
         target = get_or_create_collection(s.ac_target_collection)
         temp = get_or_create_collection(s.ac_temp_collection)
         purge_collection(temp)
@@ -288,17 +396,26 @@ class ODV_OT_ac_update_from_fbx(bpy.types.Operator):
         incoming = bucket_by_material(imported, temp)
         clean_up(incoming.values(), s)
 
-        existing = {o.name: o for o in target.objects if o.type == 'MESH'}
+        existing, duplicates = objects_by_surface(target.objects)
 
         matched = set(existing) & set(incoming)
         added = set(incoming) - set(existing)
         gone = set(existing) - set(incoming)
 
+        # surfaces that already have objects outside the target: usually a wrong Target
+        elsewhere = surfaces_outside(added, target, temp)
+
+        carried = {}
         for name in matched:
-            swap_geometry(existing[name], incoming[name])
+            obj = existing[name]
+            n = swap_geometry(obj, incoming[name])
+            obj[SURFACE_KEY] = name
+            if n:
+                carried[obj.name] = n
 
         for name in added:
             obj = incoming[name]
+            obj[SURFACE_KEY] = name
             move_exclusively(obj, target)
             if s.ac_autoindex:
                 obj.pass_index = next_free_pass_index(target)
@@ -310,13 +427,27 @@ class ODV_OT_ac_update_from_fbx(bpy.types.Operator):
         purge_collection(temp)
         purge_orphan_dupe_materials()
 
-        self.report(
-            {'INFO'},
-            f"updated {len(matched)} | new {len(added)} | missing {len(gone)}"
-        )
+        summary = f"updated {len(matched)} | new {len(added)} | missing {len(gone)}"
+        if duplicates:
+            summary += f" | duplicates left {len(duplicates)}"
+        self.report({'INFO'}, summary)
+        if elsewhere:
+            where = sorted(set(elsewhere.values()))
+            self.report(
+                {'WARNING'},
+                f"{len(elsewhere)} new surfaces already have objects in {', '.join(where[:3])}"
+                f"{' …' if len(where) > 3 else ''}: is Target '{target.name}' the model's collection?")
+        elif target_created and incoming:
+            self.report({'INFO'}, f"created collection '{target.name}'")
         print(f"[AC Updater] matched: {sorted(matched)}")
         print(f"[AC Updater] new:     {sorted(added)}")
         print(f"[AC Updater] missing: {sorted(gone)}")
+        if carried:
+            print(f"[AC Updater] faces kept in another slot: {dict(sorted(carried.items()))}")
+        if duplicates:
+            print(f"[AC Updater] duplicates left as they are: {sorted(o.name for o in duplicates)}")
+        if elsewhere:
+            print(f"[AC Updater] new surfaces with objects outside the target: {dict(sorted(elsewhere.items()))}")
         return {'FINISHED'}
 
 
@@ -350,6 +481,10 @@ class ODV_PT_ac_fbx_updater(bpy.types.Panel):
         s = context.scene
         layout = self.layout
         layout.prop(s, "ac_fbx_path")
+        if s.ac_target_collection and bpy.data.collections.get(s.ac_target_collection) is None:
+            col = layout.column(align=True)
+            col.label(text=f"Target '{s.ac_target_collection}' not in this file:", icon='ERROR')
+            col.label(text="it will be created, every surface added as new")
 
         box = layout.box()
         box.label(text="Options")

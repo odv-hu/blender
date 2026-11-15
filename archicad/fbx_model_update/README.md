@@ -25,7 +25,7 @@ Their settings are not needed: materials are set up in Blender.
 | Field | |
 | --- | --- |
 | **FBX** | The exported file. |
-| **Target** | The collection that holds the model in the scene, `ARCHICAD MODEL` by default. Created on the first update if it is missing. |
+| **Target** | The collection that holds the model in the scene, `ARCHICAD MODEL` by default. Created on the first update if it is missing; the panel warns while it is missing, because an update then adds every surface as new. |
 | **Temp** | A working collection for the import, `__TEMP_FBX__` by default. It is emptied after each update; don't render it. |
 | **Clear missing objects** | Empty the geometry of objects that are no longer in the FBX. The objects themselves are kept. When off, they are left as they are. |
 | **Auto pass index for new** | Give each new object the lowest pass index not yet used in the target collection. |
@@ -37,11 +37,16 @@ Their settings are not needed: materials are set up in Blender.
 Every field and button explains itself in its tooltip.
 
 **Update model from FBX** imports the file, joins everything and splits it again into one object per material, named after the material, which is the Archicad surface.
-Then it compares these with the objects in the target collection by name:
+Then it compares these with the objects in the target collection by surface.
+Each object stores its surface in the custom property `odv_surface`, so the match does not depend on the object's name: when the name is already taken elsewhere in the file, Blender names the object `Paint - Sand Beige.001`, and it is still updated in place.
+Objects from earlier versions, without the property, are matched by their name without the `.001` suffix.
 
-- **in the scene and in the FBX:** the geometry is replaced inside the existing object, so its materials, pass index, modifiers and custom properties stay;
+- **in the scene and in the FBX:** the geometry is replaced inside the existing object, so its materials, pass index, modifiers and custom properties stay. Faces assigned in Blender to another material slot of the object keep that slot as long as they don't move; new or moved faces get the first slot;
 - **new in the FBX:** the object is added to the target collection;
-- **no longer in the FBX:** the object is emptied, if *Clear missing objects* is on.
+- **no longer in the FBX:** the object is emptied, if *Clear missing objects* is on. It keeps its materials, and gets its geometry back when the surface returns.
+
+If several objects in the target stand for the same surface (left over from earlier versions), the one with geometry is updated and the others are left as they are; the status bar counts them as *duplicates left*, and they can be deleted.
+If new surfaces already have objects in another collection, the update warns: the *Target* is probably not the collection that holds the model.
 
 The FBX arrives with every triangle on its own vertices.
 The two *Clean-up* options work on each surface object after the split, before the matching, so they don't change which objects are matched:
@@ -59,6 +64,8 @@ Pass indices are what the *Object Index* and *Material Index* passes use for mas
 
 ## Limitations
 
-- Custom UV maps are lost on update, because the geometry is replaced. Use procedural texture mapping.
+- Custom UV maps are lost on update, because the geometry is replaced. Use procedural texture mapping (#1).
+- Faces kept in another material slot are found by position: a face whose centre lies within 1 mm of an old face facing the same way keeps that face's slot. Faces that move go back to the first slot, and stay there when they move back.
+- An object split off a surface by hand (`Paint - Light Gray (parts)`) is not a surface of the FBX: it counts as missing and is emptied, while its faces come back in the surface object (#39).
 - Object transforms are applied: the geometry sits in world coordinates and every object's transform is reset.
 - *Merge by distance* also welds separate elements of the same surface where they touch. Where two elements share a face (a block standing on a block of the same surface), the hidden contact faces stay inside the mesh and the edges around them become non-manifold, which can trouble Bevel and smooth shading at that joint.
