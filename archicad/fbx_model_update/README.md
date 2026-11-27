@@ -36,7 +36,7 @@ Their settings are not needed: materials are set up in Blender.
 *Update model from FBX* stays greyed out until an FBX file is selected.
 Every field and button explains itself in its tooltip.
 
-**Update model from FBX** imports the file, joins everything and splits it again into one object per material, named after the material, which is the Archicad surface.
+**Update model from FBX** imports the file and regroups it into one object per material, named after the material, which is the Archicad surface: the faces of every element with that material, in world coordinates, with their UV maps, normals and other mesh attributes. This works on the mesh data directly (#16), not through Blender's join and separate operators, so it does not depend on the active window, view layer or selection, and on a synthetic import of 6000 elements it takes 10 s instead of 55 s.
 Then it compares these with the objects in the target collection by surface.
 Each object stores its surface in the custom property `odv_surface`, so the match does not depend on the object's name: when the name is already taken elsewhere in the file, Blender names the object `Paint - Sand Beige.001`, and it is still updated in place.
 Objects from earlier versions, without the property, are matched by their name without the `.001` suffix.
@@ -68,4 +68,5 @@ Pass indices are what the *Object Index* and *Material Index* passes use for mas
 - Faces kept in another material slot are found by position: a face whose centre lies within 1 mm of an old face facing the same way keeps that face's slot. Faces that move go back to the first slot, and stay there when they move back.
 - An object split off a surface by hand (`Paint - Light Gray (parts)`) is not a surface of the FBX: it counts as missing and is emptied, while its faces come back in the surface object (#39).
 - Object transforms are applied: the geometry sits in world coordinates and every object's transform is reset.
+- Loose vertices and edges (not part of a face) in the FBX are dropped when the import is regrouped, as are faces without a material.
 - *Merge by distance* also welds separate elements of the same surface where they touch. Where two elements share a face (a block standing on a block of the same surface), the hidden contact faces stay inside the mesh and the edges around them become non-manifold, which can trouble Bevel and smooth shading at that joint.

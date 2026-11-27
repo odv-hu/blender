@@ -11,6 +11,7 @@ from math import radians
 
 import bmesh
 import bpy
+import numpy as np
 from mathutils import Matrix
 from mathutils.bvhtree import BVHTree
 
@@ -111,82 +112,197 @@ def purge_orphan_dupe_materials():
             bpy.data.materials.remove(mat)
 
 
-def activate(obj):
-    bpy.ops.object.select_all(action='DESELECT')
-    obj.select_set(True)
-    bpy.context.view_layer.objects.active = obj
-
-
 # ---------------------------------------------------------------------------
 # the transform: element-structured input -> surface-structured scene
 # ---------------------------------------------------------------------------
 
-def bucket_by_material(objects, temp_col):
-    """Join everything, split by material, one object per surface.
+# Attribute data types: (foreach property, components, numpy dtype).
+ATTR_TYPES = {
+    'FLOAT': ('value', 1, np.float32), 'INT': ('value', 1, np.int32),
+    'FLOAT_VECTOR': ('vector', 3, np.float32), 'FLOAT_COLOR': ('color', 4, np.float32),
+    'BYTE_COLOR': ('color', 4, np.float32), 'BOOLEAN': ('value', 1, bool),
+    'FLOAT2': ('vector', 2, np.float32), 'INT32_2D': ('value', 2, np.int32),
+    'INT16_2D': ('value', 2, np.int32), 'INT8': ('value', 1, np.int32),
+    'QUATERNION': ('value', 4, np.float32), 'FLOAT4X4': ('value', 16, np.float32),
+}
+DOMAINS = ('POINT', 'EDGE', 'FACE', 'CORNER')
+# Written from the topology arrays, not copied as attributes.
+TOPOLOGY = {'position', 'material_index'}
 
-    Returns {material_name: object}. No name parsing involved -- the grouping
-    key is the material index on each polygon, which is what Archicad's
-    surface assignment actually became on export.
+
+def _get(collection, prop, n, comps, dtype):
+    a = np.empty(n * comps, dtype)
+    collection.foreach_get(prop, a)
+    return a.reshape(n, comps) if comps > 1 else a
+
+
+def _attributes(me):
+    """{name: (domain, data_type)} of the mesh's attributes worth carrying over: UV
+    maps, custom normals, sharp edges and faces, colours and any other generic layer.
+    Internal ones (selection, '.' prefix) and the topology are left out."""
+    return {a.name: (a.domain, a.data_type) for a in me.attributes
+            if not a.name.startswith('.') and a.name not in TOPOLOGY
+            and a.domain in DOMAINS and a.data_type in ATTR_TYPES}
+
+
+def _world_matrix(obj):
+    """The object's world matrix from its own transform and its parents', so it is
+    right even before the depsgraph has updated matrix_world (as after a script set
+    the transform). Parents other than objects fall back to matrix_world."""
+    if obj.parent is None:
+        return obj.matrix_basis.copy()
+    if obj.parent_type != 'OBJECT':
+        return obj.matrix_world.copy()
+    return _world_matrix(obj.parent) @ obj.matrix_parent_inverse @ obj.matrix_basis
+
+
+def _mesh_arrays(obj):
+    """One object's mesh as numpy arrays, positions in world space."""
+    me = obj.data
+    nv, ne, nl, nf = len(me.vertices), len(me.edges), len(me.loops), len(me.polygons)
+    co = _get(me.vertices, 'co', nv, 3, np.float64)
+    m = np.array(_world_matrix(obj), np.float64)
+    co = co @ m[:3, :3].T + m[:3, 3]
+    d = {'co': co, 'edges': _get(me.edges, 'vertices', ne, 2, np.int64),
+         'corner_vert': _get(me.loops, 'vertex_index', nl, 1, np.int64),
+         'corner_edge': _get(me.loops, 'edge_index', nl, 1, np.int64),
+         'loop_start': _get(me.polygons, 'loop_start', nf, 1, np.int64),
+         'loop_total': _get(me.polygons, 'loop_total', nf, 1, np.int64),
+         'material_index': _get(me.polygons, 'material_index', nf, 1, np.int64),
+         'size': {'POINT': nv, 'EDGE': ne, 'FACE': nf, 'CORNER': nl}, 'attrs': {}}
+    for name, (domain, dtype) in _attributes(me).items():
+        prop, comps, npt = ATTR_TYPES[dtype]
+        a = _get(me.attributes[name].data, prop, d['size'][domain], comps, npt)
+        if name == 'custom_normal' and dtype == 'FLOAT_VECTOR':
+            # free (object-space) normals turn with the object; encoded ones (INT16_2D,
+            # relative to each corner's fan) do not need to
+            nm = np.linalg.inv(m[:3, :3]).T
+            a = a @ nm.T
+            a /= np.maximum(np.linalg.norm(a, axis=1, keepdims=True), 1e-12)
+            a = a.astype(np.float32)
+        d['attrs'][name] = a
+    return d
+
+
+def _concatenate(parts):
+    """All objects as one set of arrays, as a join would make them."""
+    out = {}
+    offs = {k: np.cumsum([0] + [p['size'][k] for p in parts]) for k in DOMAINS}
+    out['co'] = np.concatenate([p['co'] for p in parts])
+    out['edges'] = np.concatenate([p['edges'] + offs['POINT'][i] for i, p in enumerate(parts)])
+    out['corner_vert'] = np.concatenate([p['corner_vert'] + offs['POINT'][i] for i, p in enumerate(parts)])
+    out['corner_edge'] = np.concatenate([p['corner_edge'] + offs['EDGE'][i] for i, p in enumerate(parts)])
+    out['loop_start'] = np.concatenate([p['loop_start'] + offs['CORNER'][i] for i, p in enumerate(parts)])
+    out['loop_total'] = np.concatenate([p['loop_total'] for p in parts])
+    kinds = {}
+    for p in parts:
+        for name, a in p['attrs'].items():
+            kinds.setdefault(name, (a.dtype, a.shape[1:]))
+    out['attrs'] = {}
+    for name, (dtype, tail) in kinds.items():
+        domain = next(p['domains'][name] for p in parts if name in p['attrs'])
+        out['attrs'][name] = (domain, np.concatenate([
+            p['attrs'][name] if name in p['attrs'] else np.zeros((p['size'][domain],) + tail, dtype)
+            for p in parts]))
+    return out
+
+
+def _build_mesh(name, mat, all_, faces):
+    """A new mesh of the given faces (indices into the joined arrays), with every
+    attribute carried over and `mat` in its only slot."""
+    ls, lt = all_['loop_start'][faces], all_['loop_total'][faces]
+    corners = np.repeat(ls, lt) + (np.arange(int(lt.sum())) - np.repeat(np.cumsum(lt) - lt, lt))
+    verts, vmap = np.unique(all_['corner_vert'][corners], return_inverse=True)
+    edges, emap = np.unique(all_['corner_edge'][corners], return_inverse=True)
+    vindex = np.full(len(all_['co']), -1, np.int64)
+    vindex[verts] = np.arange(len(verts))
+    me = bpy.data.meshes.new(name)
+    me.vertices.add(len(verts))
+    me.edges.add(len(edges))
+    me.loops.add(len(corners))
+    me.polygons.add(len(faces))
+    me.vertices.foreach_set('co', all_['co'][verts].astype(np.float32).ravel())
+    me.edges.foreach_set('vertices', vindex[all_['edges'][edges]].astype(np.int32).ravel())
+    me.loops.foreach_set('vertex_index', vmap.astype(np.int32))
+    me.loops.foreach_set('edge_index', emap.astype(np.int32))
+    me.polygons.foreach_set('loop_start', (np.cumsum(lt) - lt).astype(np.int32))
+    pick = {'POINT': verts, 'EDGE': edges, 'FACE': faces, 'CORNER': corners}
+    for aname, (domain, data) in all_['attrs'].items():
+        dtype = all_['types'][aname]
+        prop = ATTR_TYPES[dtype][0]
+        attr = me.attributes.get(aname) or me.attributes.new(aname, dtype, domain)
+        attr.data.foreach_set(prop, np.ascontiguousarray(data[pick[domain]]).ravel())
+    for i, uv in enumerate(all_['uv_order']):
+        if uv in me.uv_layers:
+            if uv == all_['uv_active']:
+                me.uv_layers.active = me.uv_layers[uv]
+            if uv == all_['uv_render']:
+                me.uv_layers[uv].active_render = True
+    me.materials.append(mat)
+    me.update()
+    return me
+
+
+def bucket_by_material(objects, temp_col):
+    """One object per surface, from mesh data directly (#16).
+
+    Returns {material_name: object}. The grouping key is the material on each
+    polygon, which is what Archicad's surface assignment became on export. Works
+    like joining the import, applying the transform and separating by material,
+    but with numpy on the mesh data instead of operators: independent of the
+    active window, view layer and selection, and faster on large models. Faces
+    without a material are left out, as before; so are loose vertices and edges.
     """
     meshes = [o for o in objects if o.type == 'MESH' and o.data and len(o.data.polygons)]
     if not meshes:
         return {}
-
-    if bpy.context.mode != 'OBJECT':
-        bpy.ops.object.mode_set(mode='OBJECT')
-
-    # 1. one mega mesh (join bakes each object's world transform in)
-    bpy.ops.object.select_all(action='DESELECT')
+    parts, keys, mats = [], [], {}
     for o in meshes:
-        o.select_set(True)
-    bpy.context.view_layer.objects.active = meshes[0]
-    if len(meshes) > 1:
-        bpy.ops.object.join()
-    merged = bpy.context.view_layer.objects.active
-
-    # 2. flatten the transform so nothing can drift between updates
-    activate(merged)
-    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
-
-    # 3. split it back out, one object per material
-    activate(merged)
-    bpy.ops.object.mode_set(mode='EDIT')
-    bpy.ops.mesh.select_all(action='SELECT')
-    bpy.ops.mesh.separate(type='MATERIAL')
-    bpy.ops.object.mode_set(mode='OBJECT')
-
-    pieces = [o for o in bpy.context.selected_objects if o.type == 'MESH']
-    if merged not in pieces:
-        pieces.append(merged)
+        part = _mesh_arrays(o)
+        part['domains'] = {n: dom for n, (dom, _t) in _attributes(o.data).items()}
+        parts.append(part)
+        slots = [s.material for s in o.material_slots] or [None]
+        codes = []                    # material per slot as an integer, -1 for none
+        for m in slots:
+            if m is None:
+                codes.append(-1)
+            else:
+                codes.append(list(mats).index(m.name) if m.name in mats else len(mats))
+                mats.setdefault(m.name, m)
+        idx = np.clip(part['material_index'], 0, len(slots) - 1)
+        keys.append(np.array(codes, np.int64)[idx])
+    all_ = _concatenate(parts)
+    types = {}
+    for o in meshes:
+        for n, (_dom, t) in _attributes(o.data).items():
+            types.setdefault(n, t)
+    all_['types'] = types
+    first = meshes[0].data
+    all_['uv_order'] = [uv.name for uv in first.uv_layers]
+    all_['uv_active'] = first.uv_layers.active.name if first.uv_layers.active else None
+    all_['uv_render'] = next((uv.name for uv in first.uv_layers if uv.active_render), None)
+    face_key = np.concatenate(keys)
+    order = np.argsort(face_key, kind='stable')          # faces grouped by material, in order
+    bounds = np.searchsorted(face_key[order], np.arange(len(mats) + 1))
+    names = list(mats)
 
     result = {}
-    for obj in pieces:
-        move_exclusively(obj, temp_col)
-        activate(obj)
-        try:
-            bpy.ops.object.material_slot_remove_unused()
-        except RuntimeError:
-            pass
-
-        if not obj.data.materials or obj.data.materials[0] is None:
-            bpy.data.objects.remove(obj, do_unlink=True)
+    for code in sorted(range(len(names)), key=lambda c: names[c]):
+        name = names[code]
+        faces = order[bounds[code]:bounds[code + 1]]
+        if not len(faces):
             continue
-
-        name = obj.data.materials[0].name
-        if name in result:
-            # shouldn't happen after separate-by-material, but never drop geometry
-            bpy.ops.object.select_all(action='DESELECT')
-            result[name].select_set(True)
-            obj.select_set(True)
-            bpy.context.view_layer.objects.active = result[name]
-            bpy.ops.object.join()
-            continue
-
+        me = _build_mesh(name, mats[name], all_, faces)
+        obj = bpy.data.objects.new(name, me)
+        temp_col.objects.link(obj)
         obj.name = name
-        obj.data.name = name
-        obj.matrix_world = Matrix.Identity(4)
         result[name] = obj
 
+    # The imported pieces are used up, as with a join. One batch: removing objects one
+    # by one updates the relations each time and is slow with thousands of them.
+    data = {o.data for o in meshes}
+    bpy.data.batch_remove(meshes)
+    bpy.data.batch_remove([d for d in data if d.users == 0])
     return result
 
 
