@@ -103,7 +103,7 @@ Layer order, top to bottom: `matid`, custom AOVs, `mist`, `ao`, the Add layers, 
 ## When the PSD is written
 
 - When Blender writes the render: Photographer's render queue, a command-line render, *Render › Render Image* with an output written by a script.
-- After F12, with *Save F12 renders* on and an output path with a file name. F12 saves to the output path as typed, so the next F12 render overwrites the same files.
+- After F12, with *Save F12 renders* on and an output path with a file name. F12 saves to the output path as typed, with Photographer's `$camera` token replaced by the active camera's name (as its render queue names the files), so `<folder>/$camera` gives `<camera>.png`, `<camera>_matid.png` and `<camera>.psd`. Other tokens are left as they are, and the next F12 render of the same camera overwrites its files. The panel's *Saves to:* line shows the name with the token replaced.
 - From the Image Editor: *Image › Save Layered PSD...* opens a file browser, offering the render's output name, and saves the last render there: `<name>.psd`, with the beauty `<name>.png` and, with *Keep separate files*, the pass files `<name>_<pass>.png` next to it. Saving the same render a second time, to another name, copies the pass files, so the first PSD keeps its own.
 
 The beauty file name is the output path plus `.png` (Blender 5.3 writes a still without a frame number). The ID file is `<beauty name>_matid.png` and the PSD `<beauty name>.psd`, in the beauty's folder.

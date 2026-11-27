@@ -286,6 +286,22 @@ if os.path.exists(stem + ".png"):
     check(np.array_equal(raw(stem + ".png"), raw(os.path.join(OUT, "render", "Cam1.png"))),
           "saved F12 beauty = written beauty of the same camera, bit-exact")
 
+# Photographer's $camera token in the output path (#31): an F12 render saved by odv
+# gets the camera's name, as the render queue would give it; the panel shows it.
+scene.camera = cams[1]
+r.filepath = os.path.join(OUT, "render", "$camera")
+check(any(t == f"Saves to: {cams[1].name}.png" for _, t in po.status_lines(scene, scene.view_layers[0])),
+      "$camera: the panel's Saves to line shows the camera's name")
+bpy.ops.render.render(write_still=False)
+stem = os.path.join(OUT, "render", cams[1].name)
+check(all(os.path.exists(stem + e) for e in (".png", ".psd", "_matid.png"))
+      and not any(f.startswith("$camera") for f in os.listdir(os.path.join(OUT, "render"))),
+      f"$camera: F12 saves {cams[1].name}.png, {cams[1].name}_matid.png and {cams[1].name}.psd, no $camera files")
+check(po.f12_path(os.path.join("out", "$camera_v2"), "A/B") == os.path.join("out", "A_B_v2")
+      and po.f12_path(os.path.join("$camera", "x"), "Cam") == os.path.join("$camera", "x"),
+      "$camera: replaced in the file name only, characters not allowed in file names replaced by _")
+scene.camera = cams[0]
+
 scene.odv_post.save_f12 = False
 stem = render("f12off", write=False)
 check(not os.path.exists(stem + ".png") and not os.path.exists(stem + ".psd"),
