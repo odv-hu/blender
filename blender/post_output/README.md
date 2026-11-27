@@ -115,7 +115,7 @@ The PSD is written on a separate thread after the render, so neither the interfa
 
 - 16-bit RGB, the canvas size of the render, with the beauty's colour profile (sRGB from Blender) embedded. Blender 5.0 and 5.1 write the PNG without a profile, so the PSD has none either; image editors then assume sRGB.
 - Layers: `matid` (Normal, 100 %, hidden) above `beauty` (Normal, 100 %, visible; the render's alpha as layer transparency, straight, not premultiplied); the [extra passes](#extra-passes) between them, hidden.
-- Layer channels ZIP-compressed with prediction; the merged composite uncompressed, so that the PSD thumbnail handler on Windows can draw a preview.
+- Layer channels ZIP-compressed with prediction; the merged composite RLE-compressed (PackBits, what Photoshop itself writes for it), not ZIP, because the PSD thumbnail handler on Windows draws noise for a ZIP composite. RLE shrinks the composite most where the image is flat (transparent or white areas): on a 1560 × 1040 Cycles render of an object on transparency, 13 → 1.7 MB; on a full-frame image with render grain only by about a quarter, because the low bytes of 16-bit samples are noise. `tests/psd_rle_probe.py` writes a pair of PSDs to check the previews.
 - Written by a small writer in this module (`psd.py`, numpy and the Python standard library only); checked in the image editor on Windows (#21).
 
 ## Limitations

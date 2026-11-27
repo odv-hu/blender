@@ -5,6 +5,10 @@ Versions follow semantic versioning; tags are `vX.Y.Z` on `main` (see `docs/RELE
 
 ## Unreleased
 
+### Changed
+
+- Post-production output: the layered PSD's merged composite is RLE-compressed instead of stored uncompressed, which makes the PSD smaller, most of all where the render has flat or transparent areas (#24).
+
 ## 0.0.7 (2026-11-15)
 
 ### Fixed
