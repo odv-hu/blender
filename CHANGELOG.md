@@ -5,6 +5,10 @@ Versions follow semantic versioning; tags are `vX.Y.Z` on `main` (see `docs/RELE
 
 ## Unreleased
 
+### Changed
+
+- Archicad FBX Updater: the import is regrouped into one object per surface from the mesh data instead of with Blender's join and separate operators (#16). The result is the same; it no longer depends on the active window, view layer or selection, and large models update much faster (6000 elements: 10 s instead of 55 s, synthetic test).
+
 ## 0.0.7 (2026-11-15)
 
 ### Fixed
