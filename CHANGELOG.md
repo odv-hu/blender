@@ -5,6 +5,10 @@ Versions follow semantic versioning; tags are `vX.Y.Z` on `main` (see `docs/RELE
 
 ## Unreleased
 
+### Changed
+
+- Post-production output: an F12 render saved with *Save F12 renders* replaces Photographer's `$camera` token in the output path with the active camera's name, so F12 and Photographer's render queue name a camera's files the same way, and an F12 render of one camera no longer overwrites another's (#31). The panel's *Saves to:* line shows the replaced name.
+
 ## 0.0.7 (2026-11-15)
 
 ### Fixed

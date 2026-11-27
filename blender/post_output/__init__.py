@@ -174,6 +174,20 @@ def beauty_candidates(scene):
             os.path.normpath(r.frame_path(frame=scene.frame_current))]
 
 
+CAMERA_TOKEN = "$camera"      # Photographer's token for the camera name in the output path (#31)
+
+
+def f12_path(path, camera):
+    """The output path for a render that odv saves itself (F12): Photographer's $camera
+    token replaced by the camera's name, as its render queue does. Only in the file
+    name; renders that Blender writes keep the path they were written to."""
+    if CAMERA_TOKEN not in path or not camera:
+        return path
+    folder, name = os.path.split(path)
+    safe = "".join("_" if c in '\\/:*?"<>|' else c for c in camera)
+    return os.path.join(folder, name.replace(CAMERA_TOKEN, safe))
+
+
 def id_node(scene):
     g = scene.compositing_node_group
     n = g.nodes.get(NODE_NAME) if g else None
@@ -507,7 +521,7 @@ def start(job, save=False):
             return False
         scene = bpy.data.scenes.get(job["scene"])
         rr = bpy.data.images.get("Render Result")
-        path = job["beauty"][0]
+        path = f12_path(job["beauty"][0], job.get("camera"))
         problem = output_problem(path) or (scene is None and "the scene is gone") \
             or (rr is None and "there is no render result")
         if problem:
@@ -528,6 +542,7 @@ def _on_render_pre(scene, *args):
         return
     try:
         job = {"scene": scene.name, "start": time.time(), "written": False,
+               "camera": scene.camera.name if scene.camera else "",
                "beauty": beauty_candidates(scene), "items": item_files(scene),
                "keep": s.keep_separate, "save_f12": s.save_f12}
     except Exception as e:   # never break a render
@@ -932,6 +947,8 @@ def status_lines(scene, view_layer):
     im = r.image_settings
     fmt_ok = im.file_format == 'PNG' and im.color_depth == '16' and im.color_mode == 'RGBA'
     path = beauty_candidates(scene)[0]
+    if settings(scene).save_f12:     # what an F12 render is saved as
+        path = f12_path(path, scene.camera.name if scene.camera else "")
     problem = output_problem(path)
     node = id_node(scene)
     return [
@@ -1052,7 +1069,7 @@ class ODV_OT_post_save_render(bpy.types.Operator, ExportHelper):
         # Start from this render's name: the output path, or where it was saved last.
         # Set every time: the browser would otherwise offer the previous render's name.
         job = _last["job"]
-        path = bpy.path.abspath(job.get("beauty_file") or job["beauty"][0])
+        path = bpy.path.abspath(job.get("beauty_file") or f12_path(job["beauty"][0], job.get("camera")))
         if path.startswith("//"):   # relative output path, .blend not saved: name only
             path = os.path.basename(path)
         self.filepath = os.path.splitext(path)[0] + self.filename_ext
