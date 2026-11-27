@@ -104,12 +104,36 @@ def read_psd(path):
             layers[name] = px
         f.seek(lmi_start + lmi_len)
         comp = struct.unpack(">H", f.read(2))[0]
-        assert comp == 0
-        composite = np.frombuffer(f.read(), ">u2").reshape(nch, h, w).transpose(1, 2, 0)
+        assert comp in (0, 1), comp
+        if comp == 0:
+            composite = np.frombuffer(f.read(), ">u2").reshape(nch, h, w).transpose(1, 2, 0)
+        else:   # RLE (#24): a byte count per row and channel, then PackBits rows
+            counts = np.frombuffer(f.read(2 * nch * h), ">u2")
+            data, rows, pos = f.read(), [], 0
+            for c in counts.tolist():
+                rows.append(unpackbits(data[pos:pos + c]))
+                pos += c
+            assert pos == len(data), "RLE composite: byte counts do not add up"
+            composite = np.frombuffer(b"".join(rows), ">u2").reshape(nch, h, w).transpose(1, 2, 0)
     icc = None
     if res[:6] == b"8BIM\x04\x0f":
         icc = res[12:12 + struct.unpack(">I", res[8:12])[0]]
     return layers, composite, icc
+
+
+def unpackbits(row):
+    """PackBits, decoded independently of the writer."""
+    out, i = bytearray(), 0
+    while i < len(row):
+        n = row[i]
+        if n < 128:
+            out += row[i + 1:i + 2 + n]
+            i += 2 + n
+        else:
+            if n > 128:
+                out += row[i + 1:i + 2] * (257 - n)
+            i += 2 if n > 128 else 1
+    return bytes(out)
 
 
 def raw(path):

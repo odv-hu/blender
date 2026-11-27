@@ -7,9 +7,10 @@ merged composite. Uses only numpy and the Python standard library.
 Layout, checked in the image editor on Windows (#21):
 - layer channels ZIP-compressed with prediction, layer info in the standard
   layer section;
-- the merged composite uncompressed, because the PSD thumbnail handler on
-  Windows does not decode a ZIP composite. Its colour is flattened over white,
-  as the format expects.
+- the merged composite RLE-compressed (PackBits, as Photoshop writes it), because
+  the PSD thumbnail handler on Windows does not decode a ZIP composite (#24; it
+  was uncompressed before). Its colour is flattened over white, as the format
+  expects. write(..., composite_rle=False) still writes it uncompressed.
 """
 
 import struct
@@ -19,7 +20,7 @@ from collections import namedtuple
 import numpy as np
 
 MAX = 65535
-RAW, ZIP, ZIP_PREDICTION = 0, 2, 3
+RAW, RLE, ZIP, ZIP_PREDICTION = 0, 1, 2, 3
 ZLIB_LEVEL = 6
 
 # pixels: (H, W, 3) or (H, W, 4) uint16, straight (not premultiplied) alpha.
@@ -47,6 +48,83 @@ def _encode(plane, compression):
     return data if compression == RAW else zlib.compress(data, ZLIB_LEVEL)
 
 
+def packbits_rows(rows):
+    """PackBits-encode every row of a (n, L) uint8 array, vectorised.
+
+    Returns (data, counts): the concatenated packets, row after row, and the byte
+    count of each row. Runs of three or more equal bytes become repeat packets, the
+    rest literal packets; neither crosses a row or exceeds 128 bytes.
+    """
+    rows = np.ascontiguousarray(rows, dtype=np.uint8)
+    n, length = rows.shape
+    flat = rows.ravel()
+    if flat.size == 0:
+        return b"", np.zeros(n, np.int64)
+    # runs of equal bytes, never across a row boundary
+    new = np.ones(flat.size, bool)
+    new[1:] = flat[1:] != flat[:-1]
+    new[::length] = True
+    run_start = np.flatnonzero(new)
+    run_len = np.diff(np.append(run_start, flat.size))
+    run_row = run_start // length
+    repeat = run_len >= 3
+    # consecutive short runs in the same row merge into one literal segment
+    seg_new = np.ones(run_start.size, bool)
+    seg_new[1:] = repeat[1:] | repeat[:-1] | (run_row[1:] != run_row[:-1])
+    seg_idx = np.cumsum(seg_new) - 1
+    seg_start = run_start[seg_new]
+    seg_len = np.bincount(seg_idx, weights=run_len).astype(np.int64)
+    seg_repeat = repeat[seg_new]
+    # split segments into packets of at most 128 bytes
+    npk = (seg_len + 127) // 128
+    pk_seg = np.repeat(np.arange(seg_start.size), npk)
+    first = np.cumsum(npk) - npk
+    k = np.arange(pk_seg.size) - np.repeat(first, npk)
+    pk_start = seg_start[pk_seg] + 128 * k
+    pk_len = np.minimum(128, seg_len[pk_seg] - 128 * k)
+    pk_repeat = seg_repeat[pk_seg]
+    size = np.where(pk_repeat, 2, 1 + pk_len)
+    off = np.cumsum(size) - size
+    out = np.empty(int(size.sum()), np.uint8)
+    out[off] = np.where(pk_repeat, (257 - pk_len) & 0xFF, pk_len - 1).astype(np.uint8)
+    rep = np.flatnonzero(pk_repeat)
+    out[off[rep] + 1] = flat[pk_start[rep]]
+    lit = np.flatnonzero(~pk_repeat)
+    if lit.size:
+        ll = pk_len[lit]
+        total = int(ll.sum())
+        within = np.arange(total) - np.repeat(np.cumsum(ll) - ll, ll)
+        out[np.repeat(off[lit] + 1, ll) + within] = flat[np.repeat(pk_start[lit], ll) + within]
+    counts = np.bincount(pk_start // length, weights=size, minlength=n).astype(np.int64)
+    return out.tobytes(), counts
+
+
+def unpackbits_row(data):
+    """Decode one PackBits row (for tests and checks)."""
+    out, i = bytearray(), 0
+    while i < len(data):
+        h = data[i]
+        i += 1
+        if h < 128:
+            out += data[i:i + h + 1]
+            i += h + 1
+        elif h > 128:
+            out += bytes([data[i]]) * (257 - h)
+            i += 1
+    return bytes(out)
+
+
+def _rle_planes(planes):
+    """The image data section for RLE: byte counts of every row of every channel (two
+    bytes each), then the rows, channel after channel. 16-bit samples are encoded as
+    their big-endian bytes."""
+    rows = np.concatenate([p.astype(">u2").view(np.uint8).reshape(p.shape[0], -1) for p in planes])
+    data, counts = packbits_rows(rows)
+    if counts.max(initial=0) > 0xFFFF:
+        raise ValueError("an RLE row is longer than 65535 bytes")
+    return counts.astype(">u2").tobytes() + data
+
+
 def _pascal(name, pad):
     b = name.encode("ascii", "replace")[:255]
     s = bytes([len(b)]) + b
@@ -66,12 +144,13 @@ def _resources(icc):
     return b"8BIM" + struct.pack(">H", 1039) + b"\0\0" + struct.pack(">I", len(icc)) + data
 
 
-def write(path, layers, composite, icc=None):
+def write(path, layers, composite, icc=None, composite_rle=True):
     """Write a layered 16-bit RGB PSD.
 
     layers: bottom first. composite: (H, W, 4) uint16, the merged result with
     its colour flattened over white (see flatten_over_white). icc: optional
-    ICC profile bytes, embedded as the document's colour profile.
+    ICC profile bytes, embedded as the document's colour profile. composite_rle:
+    PackBits for the composite (default), else uncompressed.
     """
     h, w = composite.shape[:2]
     nch = composite.shape[2]
@@ -118,9 +197,13 @@ def write(path, layers, composite, icc=None):
             f.write(c)
         f.write(b"\0" * pad)
         f.write(struct.pack(">I", 0))                                      # global layer mask
-        f.write(struct.pack(">H", RAW))
-        for c in range(nch):
-            f.write(composite[..., c].astype(">u2").tobytes())
+        if composite_rle:
+            f.write(struct.pack(">H", RLE))
+            f.write(_rle_planes([composite[..., c] for c in range(nch)]))
+        else:
+            f.write(struct.pack(">H", RAW))
+            for c in range(nch):
+                f.write(composite[..., c].astype(">u2").tobytes())
 
 
 def read_summary(path):
