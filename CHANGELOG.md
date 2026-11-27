@@ -5,6 +5,10 @@ Versions follow semantic versioning; tags are `vX.Y.Z` on `main` (see `docs/RELE
 
 ## Unreleased
 
+### Fixed
+
+- Post-production output: *Extra passes › Full* (or *Reflection*) stopped *Set up output* with an error on an EEVEE scene, because the extra passes assumed Cycles' passes (#36). On EEVEE, reflection is now built from glossy direct × glossy colour, light groups and refraction are greyed out and skipped with a note, nothing is denoised, and a photo match gets no shadow layer, with a note that it needs Cycles. A pass whose output the Render Layers node does not offer is left out and named instead of stopping *Set up*.
+
 ## 0.0.7 (2026-11-15)
 
 ### Fixed
