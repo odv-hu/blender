@@ -92,6 +92,12 @@ ADD_ROLES = ("reflection", "refraction", "emission", "environment")
 SIMPLE_SOURCES = {"mist": "Mist", "ao": "Ambient Occlusion", "emission": "Emission",
                   "environment": "Environment", "albedo": "Diffuse Color"}
 LIGHT_SUMS = {"reflection": "Glossy", "refraction": "Transmission"}
+# Passes the engines cannot deliver (#36). EEVEE has no transmission passes, no indirect
+# glossy (reflection is then glossy direct x colour) and no light groups; Workbench
+# renders none of the extra passes. The Shadow Catcher pass is Cycles-only too.
+EEVEE_ENGINES = {"BLENDER_EEVEE", "BLENDER_EEVEE_NEXT"}
+EEVEE_SKIPS = ("lightgroups", "refraction")
+ENGINE_LABELS = {"BLENDER_EEVEE": "EEVEE", "BLENDER_EEVEE_NEXT": "EEVEE", "BLENDER_WORKBENCH": "Workbench"}
 GEOMETRY = {'MESH', 'CURVE', 'SURFACE', 'META', 'FONT', 'CURVES', 'POINTCLOUD', 'VOLUME'}
 LAYERS_NODE_NAME = "odv Render Layers"
 POLL_S = 0.5
@@ -139,9 +145,35 @@ def ticked(s):
     return [k for k in PASSES if s is not None and getattr(s, "pass_" + k, False)]
 
 
+def is_cycles(scene):
+    return scene.render.engine == 'CYCLES'
+
+
+def engine_label(scene):
+    return ENGINE_LABELS.get(scene.render.engine, scene.render.engine.title())
+
+
+def unsupported(scene):
+    """The extra passes the scene's render engine cannot deliver."""
+    if is_cycles(scene):
+        return set()
+    if scene.render.engine in EEVEE_ENGINES:
+        return set(EEVEE_SKIPS)
+    return set(PASSES)
+
+
+def active(s):
+    """The ticked extra passes the scene's engine can deliver, in PASSES order."""
+    if s is None:
+        return []
+    skip = unsupported(s.id_data)
+    return [k for k in ticked(s) if k not in skip]
+
+
 def pass_roles(view_layer, s):
-    """{output node name: [roles]} of the ticked extra passes on this view layer."""
-    keys = ticked(s)
+    """{output node name: [roles]} of the ticked extra passes on this view layer that the
+    render engine can deliver."""
+    keys = active(s)
     out = {NODE_NAME: [], AIDS_NODE: [k for k in GREY_ROLES if k in keys], LIGHT_NODE: []}
     if "aovs" in keys:
         out[NODE_NAME] = ["aov_" + a.name for a in view_layer.aovs if a.name != AOV_NAME]
@@ -755,12 +787,33 @@ SHORT_NAMES = {"Ambient Occlusion": "AO", "Diffuse Color": "DiffCol", "Emission"
 def _output(rl, name):
     """A Render Layers output by its 5.3 name or its short pass name."""
     for n in (name, SHORT_NAMES.get(name)):
-        if n and n in rl.outputs:
+        if n and n in rl.outputs and rl.outputs[n].enabled:
             return rl.outputs[n]
     raise KeyError(f"the Render Layers node has no output {name!r}")
 
 
-def _pass_socket(g, rl, role, keep, location):
+def _sources(role, cycles):
+    """The Render Layers outputs an extra pass is made from."""
+    if role in SIMPLE_SOURCES:
+        return [SIMPLE_SOURCES[role]]
+    if role.startswith("light_"):
+        return ["Combined_" + role[len("light_"):]]
+    if role.startswith("aov_"):
+        return [role[len("aov_"):]]
+    base = LIGHT_SUMS[role]
+    return [base + " Direct"] + ([base + " Indirect"] if cycles else []) + [base + " Color"]
+
+
+def _available(rl, role, cycles):
+    try:
+        for name in _sources(role, cycles):
+            _output(rl, name)
+    except KeyError:
+        return False
+    return True
+
+
+def _pass_socket(g, rl, role, keep, location, cycles=True):
     """The compositor socket that carries an extra pass."""
     if role in SIMPLE_SOURCES:
         return _output(rl, SIMPLE_SOURCES[role])
@@ -770,6 +823,9 @@ def _pass_socket(g, rl, role, keep, location):
         return _output(rl, role[len("aov_"):])
     base = LIGHT_SUMS[role]       # (direct + indirect) x colour, as Cycles composes it
     x, y = location
+    if not cycles:                # EEVEE has no indirect pass: direct x colour (#36)
+        return _mix(g, f"odv_mix_{role}_colour", 'MULTIPLY', _output(rl, base + " Direct"),
+                    _output(rl, base + " Color"), keep, (x + 180, y))
     s = _mix(g, f"odv_mix_{role}_add", 'ADD', _output(rl, base + " Direct"),
              _output(rl, base + " Indirect"), keep, (x, y))
     return _mix(g, f"odv_mix_{role}_colour", 'MULTIPLY', s, _output(rl, base + " Color"),
@@ -777,10 +833,15 @@ def _pass_socket(g, rl, role, keep, location):
 
 
 def _setup_passes(g, scene, view_layer, rl, fo, roles, directory, denoise):
-    """File Output nodes, Mix and Denoise nodes and Cycles passes for the ticked extra
-    passes; removes those no longer ticked. Returns True if a File Output item or
-    node was removed."""
-    _enable_cycles_passes(view_layer, ticked(settings(scene)))
+    """File Output nodes, Mix and Denoise nodes and render passes for the ticked extra
+    passes; removes those no longer ticked. A pass whose Render Layers outputs are
+    missing is left out rather than stopping the set-up (#36). Returns (True if a File
+    Output item or node was removed, [roles left out])."""
+    _enable_cycles_passes(view_layer, active(settings(scene)))
+    cycles = is_cycles(scene)
+    denoise = denoise and cycles      # EEVEE output is not noisy
+    missing = [r for rs in roles.values() for r in rs if not _available(rl, r, cycles)]
+    roles = {k: [r for r in rs if r not in missing] for k, rs in roles.items()}
     removed, keep = False, set()
     x, y = rl.location.x + 300, rl.location.y - 300
     for node_name, label, view in ((AIDS_NODE, "Mist and AO files (odv)", 'Raw'),
@@ -803,7 +864,7 @@ def _setup_passes(g, scene, view_layer, rl, fo, roles, directory, denoise):
         if _set_items(node, names):
             removed = True
         for role in names:
-            sock = _pass_socket(g, rl, role, keep, (x, y))
+            sock = _pass_socket(g, rl, role, keep, (x, y), cycles)
             if denoise and (role.startswith("light_") or role in LIGHT_SUMS):
                 dn = _helper(g, "odv_dn_" + role, "CompositorNodeDenoise", keep, (x + 380, y))
                 dn.label = f"Denoise {role} (odv)"
@@ -814,20 +875,25 @@ def _setup_passes(g, scene, view_layer, rl, fo, roles, directory, denoise):
             g.links.new(sock, node.inputs[role])
             y -= 160
     for role in roles[NODE_NAME]:
-        g.links.new(_pass_socket(g, rl, role, keep, (x, y)), fo.inputs[role])
+        g.links.new(_pass_socket(g, rl, role, keep, (x, y), cycles), fo.inputs[role])
     for n in list(g.nodes):
         if n.name.startswith(HELPER_PREFIXES) and n.name not in keep:
             g.nodes.remove(n)
-    return removed
+    return removed, missing
 
 
-def _passes_note(view_layer, s, roles):
+def _passes_note(view_layer, s, roles, missing=()):
     """The extra passes for the set-up message."""
     keys = ticked(s)
     if not keys:
         return ""
-    names = [r for rs in roles.values() for r in rs]
+    names = [r for rs in roles.values() for r in rs if r not in missing]
     note = f". Extra passes as hidden layers: {', '.join(names) or 'none'}"
+    skipped = [PASSES[k][0].lower() for k in keys if k in unsupported(s.id_data)]
+    if skipped:
+        note += f". Skipped on {engine_label(s.id_data)}: {', '.join(skipped)}"
+    if missing:
+        note += f". Not delivered by the Render Layers node, left out: {', '.join(missing)}"
     if "lightgroups" in keys and not view_layer.lightgroups:
         note += ". Light groups ticked, but the view layer has none"
     if "aovs" in keys and not roles[NODE_NAME]:
@@ -873,13 +939,19 @@ def setup(scene, view_layer):
         # Lights report is_shadow_catcher = True in Blender 5.3; only rendered geometry counts.
         o.type in GEOMETRY and not o.hide_render and getattr(o, "is_shadow_catcher", False)
         for o in scene.objects)
+    shadow_note = ""
+    if catchers and not is_cycles(scene):   # the Shadow Catcher pass is Cycles-only (#36)
+        catchers = False
+        shadow_note = f". The shadow layer needs Cycles: no shadow layer on {engine_label(scene)}"
     s = settings(scene)
     roles = pass_roles(view_layer, s)
-    removed = _set_items(fo, [ITEM_NAME] + (["shadow"] if catchers else []) + roles[NODE_NAME])
+    missing = [r for r in roles[NODE_NAME] if not _available(rl, r, is_cycles(scene))]
+    removed = _set_items(fo, [ITEM_NAME] + (["shadow"] if catchers else [])
+                         + [r for r in roles[NODE_NAME] if r not in missing])
     g.links.new(rl.outputs[AOV_NAME], fo.inputs[ITEM_NAME])
-    if _setup_passes(g, scene, view_layer, rl, fo, roles, directory, s.denoise):
-        removed = True
-    passes = _passes_note(view_layer, s, roles)
+    gone, missing = _setup_passes(g, scene, view_layer, rl, fo, roles, directory, s.denoise)
+    removed = removed or gone
+    passes = _passes_note(view_layer, s, roles, missing)
 
     if pm is None:
         old = g.nodes.get(LAYERS_NODE)
@@ -921,9 +993,9 @@ def setup(scene, view_layer):
     if m is not None:
         g.links.new(photo, ao.inputs["Background"])
         g.nodes.remove(m)
-    return ('WARNING' if view_note else 'INFO',
+    return ('WARNING' if view_note or shadow_note else 'INFO',
             "Post-production output set up for a photo match: render and photo as separate "
-            "PSD layers (no shadow catcher objects)" + view_note + passes)
+            "PSD layers" + (shadow_note or " (no shadow catcher objects)") + view_note + passes)
 
 
 def status_lines(scene, view_layer):
@@ -1026,7 +1098,8 @@ class ODV_OT_post_preset(bpy.types.Operator):
 
     def execute(self, context):
         s = settings(context.scene)
-        on = PRESETS[self.preset][2]
+        skip = unsupported(context.scene)
+        on = [k for k in PRESETS[self.preset][2] if k not in skip]
         for k in PASSES:
             setattr(s, "pass_" + k, k in on)
         level, message = setup(context.scene, context.view_layer)
@@ -1123,31 +1196,41 @@ class ODV_PT_post_passes(bpy.types.Panel):
         layout = self.layout
         s = settings(context.scene)
         world = context.scene.world
+        skip = unsupported(context.scene)
         row = layout.row(align=True)
         for key, (label, _tip, _on) in PRESETS.items():
             row.operator(ODV_OT_post_preset.bl_idname, text=label).preset = key
         layout.label(text="Ticks take effect with Set up output")
+        if skip:
+            layout.label(text=f"Greyed out: not rendered by {engine_label(context.scene)}", icon='INFO')
+
+        def tick(col, key):
+            r = col.row(align=True)
+            r.active = key not in skip
+            r.prop(s, "pass_" + key)
 
         col = layout.column(align=True)
         col.label(text="Greyscale, stretched per image")
-        col.prop(s, "pass_mist")
+        tick(col, "mist")
         if s.pass_mist and world:
             sub = col.row(align=True)
             sub.prop(world.mist_settings, "start")
             sub.prop(world.mist_settings, "depth")
-        col.prop(s, "pass_ao")
+        tick(col, "ao")
         if s.pass_ao and world:
             col.prop(world.light_settings, "distance", text="AO distance")
 
         col = layout.column(align=True)
         col.label(text="Colour, scene view transform")
         for k in ("lightgroups", "reflection", "refraction", "emission", "environment", "albedo"):
-            col.prop(s, "pass_" + k)
-        col.prop(s, "denoise")
+            tick(col, k)
+        r = col.row(align=True)
+        r.active = is_cycles(context.scene)    # EEVEE output is not noisy
+        r.prop(s, "denoise")
 
         col = layout.column(align=True)
         col.label(text="Exact values")
-        col.prop(s, "pass_aovs")
+        tick(col, "aovs")
 
 
 def _image_menu(self, context):

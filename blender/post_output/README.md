@@ -69,6 +69,7 @@ Measured on a real project (Blender 5.3, Standard view, synthetic black-and-whit
 What does not match:
 - **Object edges.** The anti-aliased edge pixels of the render (1–2 px) still blend on display values: on the checker, 16 of 255 on average, up to 70. The hidden `composite` layer is Blender's exact result.
 - **Light on the shadow catcher.** Light that other objects bounce or reflect onto a shadow catcher is in the *Combined* pass as colour without alpha, which a layer with straight alpha cannot carry. It is missing from the stack (on the real project, 0.13 % of the transparent pixels, up to 36 of 255) but is in `composite`. (#30)
+- **EEVEE.** The *Shadow Catcher* pass is Cycles-only: on EEVEE the PSD has `render` and `photo` but no `shadow` layer, *Set up* adds no multiply and says that the shadow layer needs Cycles.
 - **View transforms other than Standard.** The shadow and photo layers match only with the *Standard* view and no look; *Set up* warns otherwise. Photo matches usually use Standard so that the photo stays as it is.
 
 ## Extra passes
@@ -89,6 +90,8 @@ Each ticked pass is written as `<name>_<pass>.png` and becomes a hidden layer in
 | Custom AOVs | `aov_<name>` | Normal | every AOV of the view layer except `odv_matid` | exact values, Standard view |
 
 Layer order, top to bottom: `matid`, custom AOVs, `mist`, `ao`, the Add layers, `albedo`, then the beauty (or the photo-match layers). All extra layers are hidden.
+
+**Render engines.** The table describes Cycles. EEVEE renders mist, AO, emission, environment, albedo and custom AOVs the same way, and reflection as *Glossy Direct* × *Glossy Color* (it has no indirect glossy pass). It has no light groups and no transmission passes, so *Light groups* and *Refraction* are greyed out in the panel, *Full* leaves them unticked, and if they are ticked anyway *Set up* skips them and says so. Nothing is denoised on EEVEE: its output is not noisy. Workbench renders none of the extra passes. A pass whose output the *Render Layers* node does not offer (pass names change between Blender versions) is left out and named in the set-up message instead of stopping *Set up*.
 
 **Presets.** *Minimal*: no extra passes. *Photo match*: AO. *Full*: everything except environment and albedo. A preset ticks its passes and runs *Set up output*; ticking by hand takes effect with the next *Set up output*. The status box says when the ticks and the set-up differ.
 
@@ -138,3 +141,4 @@ Blender 5.3, a scene with material IDs assigned and two cameras:
 5. Photo-match scene: *Set up output* again; F12; the PSD has `render`, `shadow` (Multiply) and `photo` visible, and switching `composite` on shows nearly the same image.
 6. *Keep separate files* off, F12: only the PSD is left.
 7. A scene with two light groups, a glass and an emitting object: *Extra passes › Full*; the status box shows *Extra passes* ticked. F12: the PSD has the beauty visible and hidden layers `light_<group>`, `reflection`, `refraction`, `emission` (Linear Dodge), `ao` (Multiply), `mist` (Screen) under `matid`; mist and AO span black to white. *Minimal*: the extra nodes are gone from the compositor.
+8. The same scene on EEVEE: *Light groups* and *Refraction* are greyed out; *Full* runs without an error and the message says *Skipped on EEVEE: light groups, refraction*. F12: the PSD has `reflection`, `emission`, `ao`, `mist`. A photo match on EEVEE: *Set up* says the shadow layer needs Cycles.

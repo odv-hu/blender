@@ -435,6 +435,58 @@ check(bpy.ops.odv.post_preset(preset='MINIMAL') == {'FINISHED'} and g.nodes.get(
 stem = render("minimal")
 check(po.psd.read_summary(stem + ".psd")["layers"] == [("beauty", True, "norm"), ("matid", False, "norm")],
       "Minimal preset: PSD with beauty and matid only")
+# --- extra passes on EEVEE (#36) --------------------------------------------------------
+# EEVEE has no light groups, no transmission and no indirect glossy pass: Full ticks only
+# what EEVEE renders, reflection is glossy direct x colour, nothing is denoised, and the
+# set-up message names what was skipped.
+r.engine = 'BLENDER_EEVEE'
+check(po.unsupported(scene) == {"lightgroups", "refraction"}, "EEVEE: light groups and refraction unsupported")
+check(bpy.ops.odv.post_preset(preset='FULL') == {'FINISHED'}
+      and [k for k in po.PASSES if getattr(s, "pass_" + k)] == ["mist", "ao", "reflection", "emission", "aovs"],
+      "EEVEE: Full ticks mist, AO, reflection, emission and custom AOVs only")
+s.pass_lightgroups = s.pass_refraction = True       # ticked by hand anyway
+level, message = po.setup(scene, vl)
+light = g.nodes.get(po.LIGHT_NODE)
+check(light is not None and [i.name for i in light.file_output_items] == ["reflection", "emission"],
+      "EEVEE: light File Output carries reflection and emission only")
+check("Skipped on EEVEE: light groups, refraction" in message, f"EEVEE: the message names the skipped passes ({message!r})")
+mix = g.nodes.get("odv_mix_reflection_colour")
+check(mix is not None and g.nodes.get("odv_mix_reflection_add") is None
+      and po._socket(mix.inputs, "A_Color").links[0].from_socket.name == "Glossy Direct"
+      and po._socket(mix.inputs, "B_Color").links[0].from_socket.name == "Glossy Color",
+      "EEVEE: reflection = glossy direct x glossy colour, no Add node")
+check(not any(n.name.startswith("odv_dn_") for n in g.nodes), "EEVEE: no Denoise nodes")
+check(all(ok for ok, _ in po.status_lines(scene, vl)), "EEVEE: status box: every line ticked")
+try:
+    stem = render("eevee")
+    rendered = os.path.exists(stem + ".png")
+except Exception as e:      # EEVEE needs a GPU context, which a headless machine may not have
+    rendered, why = False, e
+if rendered:
+    check(os.path.exists(stem + ".psd") and [l[0] for l in po.psd.read_summary(stem + ".psd")["layers"]]
+          == ["beauty", "reflection", "emission", "ao", "mist", "aov_mask", "matid"],
+          "EEVEE render: PSD with reflection built from the EEVEE passes")
+    ev, _, _ = read_psd(stem + ".psd")
+    check(ev["reflection"][..., :3].max() > 0 and np.array_equal(ev["reflection"][..., :3], raw(stem + "_reflection.png")[..., :3]),
+          "EEVEE render: the reflection layer has content and equals its file")
+else:
+    print(f"     EEVEE render not run here ({why if 'why' in dir() else 'no PNG written'}): the PSD on EEVEE is not checked")
+# Fail soft: a pass whose Render Layers output is missing is left out and named.
+r.engine = 'CYCLES'
+real_sources = po._sources
+po._sources = lambda role, cycles: ["No Such Output"] if role == "emission" else real_sources(role, cycles)
+try:
+    level, message = po.setup(scene, vl)
+    ok = True
+except KeyError as e:
+    ok, message = False, str(e)
+po._sources = real_sources
+check(ok and "emission" not in [i.name for i in g.nodes[po.LIGHT_NODE].file_output_items]
+      and "left out: emission" in message,
+      "a pass without its Render Layers output is left out and named, Set up does not stop")
+s.pass_lightgroups = s.pass_refraction = False
+bpy.ops.odv.post_preset(preset='MINIMAL')
+
 for o in ("Lamp", "Glass", "Key"):
     bpy.data.objects.remove(bpy.data.objects[o])
 world.lightgroup = ""
@@ -570,6 +622,18 @@ check(po.psd.read_summary(stem + ".psd")["layers"]
       == [("photo", True, "norm"), ("shadow", True, "mul "), ("render", True, "norm"),
           ("composite", False, "norm"), ("ao", False, "mul "), ("matid", False, "norm")],
       "Photo match preset: photo, shadow, render, composite, ao (hidden, Multiply), matid; one layer per role")
+
+# Photo match on EEVEE (#36): the Shadow Catcher pass is Cycles-only, so no shadow
+# layer, no multiply, and the message says so.
+r.engine = 'BLENDER_EEVEE'
+level, message = po.setup(scene, scene.view_layers[0])
+check(level == 'WARNING' and "shadow layer needs Cycles" in message
+      and [i.name for i in node.file_output_items] == ["matid"] and g.nodes.get(po.MULTIPLY_NODE) is None
+      and ao.inputs["Background"].links[0].from_node == img_node,
+      "photo match on EEVEE: no shadow layer or multiply, the message names Cycles")
+r.engine = 'CYCLES'
+check(bpy.ops.odv.post_setup() == {'FINISHED'} and [i.name for i in node.file_output_items] == ["matid", "shadow"]
+      and g.nodes.get(po.MULTIPLY_NODE) is not None, "photo match back on Cycles: shadow layer and multiply again")
 
 # --- unregister ----------------------------------------------------------------------
 
